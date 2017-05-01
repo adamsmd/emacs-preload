@@ -1,0 +1,616 @@
+#!/usr/bin/env python3
+
+import argparse
+import contextlib
+import os
+import shlex
+import signal
+import stat
+import subprocess
+import sys
+import tempfile
+import time
+
+# emacs-preload
+#
+# This file is `emacs-preload`, which manages a pool
+# of emacs daemons for fast emacs
+
+# emacs-preload
+#
+# maintains a pool of emacs deamons for fast emacsclient startup
+#
+# The most common usage is simply:
+#   emacs-preload connect ARGS ...
+# where ARGS are arguments to be passed to `emacsclient` (e.g., files to edit).
+
+# Data structures:
+#  ~/.emacs.d/preload/preload-XXXX
+#  /tmp/emacs1000/preload-XXXX
+#  emacs server
+
+# Technical details:
+# Emacs deamons put a socket file in `/tmp/emacs$UID/$NAME`
+# This script puts in ~/.emacs.d/preload/ symlinks to the socket fild of the servers it starts.
+# When this script connects to a server, it removes that symlink
+# Thus all the symlinks in ~/.emacs.d/preload/ represent unused servers that we can connect to.
+#
+# When the number of symlinks in ~/.emacs.d/preload/ is low,
+# this script launches more servers in the background.
+#
+# There are a few ways things can break:
+#  (1) The server could shut down
+#  (2) The socket file could be removed
+#  (3) The symlinks in ~/.emacs.d/preload/ could be removed
+#
+# Also, any combination of the above three could happen.
+
+# TODO:
+#  - emacsclient exits as soon as you close a buffer
+#     Hack server.el?
+
+# TODO: avoid readlink and use 'rm' as semaphore
+
+
+
+# Note, only ever kills user's own servers.  Allowing root to manipulate servers for all users would be complicated.
+# It's not very clean but if needed could do: for u in $users; do (su - $u; emacs-preload ...); done
+
+#: ${EMACS_PRELOAD_SIZE:=3} # How many servers to keep preloaded
+#: ${EMACS_PRELOAD_EMACS:=emacs} # `emacs` command
+#: ${EMACS_PRELOAD_EMACSCLIENT:=emacsclient} # `emacsclient` command
+#: ${EMACS_PRELOAD_LAUNCH_DELAY:=5} # How long to wait between starting servers
+#: ${EMACS_PRELOAD_CONNECT_DELAY:=0.1} # How long to wait between connection attempts
+#: ${EMACS_PRELOAD_CONNECT_ATTEMPTS:=600} # How many times to try connecting
+#: ${EMACS_PRELOAD_PREFIX:="preload-"} # Unique prefix used for server names
+#
+## About 150ms delay if not already have these
+##EMACS_PRELOAD_LINK_DIR=$HOME/.emacs.d/preload
+##EMACS_PRELOAD_SOCKET_DIR=/tmp/emacs$UID
+##    "~/.emacs.d/")
+##       (format "%s/emacs%d" (or (getenv "TMPDIR") "/tmp") (user-uid)))
+
+
+# TODO: true top level? FOO = (False, 'doc')
+ENV_PREFIX = 'EMACS_PRELOAD_'
+def configs():
+    link_dir = os.path.expanduser('~/.emacs.d/preload')
+    socket_dir = or_none(os.getenv('TMPDIR'), '/tmp') \
+        + '/emacs' + str(os.geteuid())
+    return [
+        ('DRY_RUN', False, 'print commands instead of executing them'),
+        ('QUIET', False, 'supress info messages and startup messages from emacs servers'),
+        ('QUERY_EMACS', False, 'call emacs to determine LINK_DIR and SOCKET_DIR.'
+         + ' Off by default for performance reasons.'
+         + ' Use only if not finding correct directories.'),
+        ('SIZE', 5, 'default number of servers to keep running'),
+        ('EMACS', 'emacs', 'the emacs binary to use'),
+        ('EMACSCLIENT', 'emacsclient', 'the emacsclient binary to use'),
+        ('PS', 'ps', 'the ps binary to use for process listing'),
+        ('START_DELAY', 0.1, 'seconds to wait between starting servers'),
+        ('STOP_DELAY', 0.1, 'seconds to wait between stopping servers'),
+        ('CONNECT_DELAY', 0.1, 'seconds between attempts to connect to a server'),
+        ('CONNECT_ATTEMPTS', 600, 'maximum number of attempts to connect to a server'),
+        ('CONNECT_TIMEOUT', 60.0, 'maximum seconds to keep attempting to connect to a server'),
+        ('PREFIX', 'preload-', 'prefix to use for server names, links, and sockets'),
+        ('LINK_DIR', link_dir, 'directory in which to place links'),
+        ('SOCKET_DIR', socket_dir, 'the directory in which emacs stores its sockets')]
+
+# TODO: better documentation of subcommands (i.e., both short and long form)
+
+# TODO: Three parts
+#   links
+#   sockets
+#   servers
+
+################
+# Errors
+
+class Err(Exception):
+    def __init__(self, message, *args, **kwargs):
+        Exception.__init__(self)
+        self.message = f(message, *args, **kwargs)
+        # TODO: line numbers in errors
+
+def error(message, *args, **kwargs):
+    raise Err(f(message, *args, **kwargs))
+
+def check(val, message, *args, **kwargs):
+    if val: return val
+    else: error(message, *args, **kwargs)
+
+def because(m1, m2): return f('{}\n    because {}', m1, m2)
+
+@contextlib.contextmanager
+def noop(): yield
+
+@contextlib.contextmanager
+def err(message, *args, **kwargs):
+    try: yield
+    except Err as e:
+        error(because(f(message, *args, **kwargs), e.message))
+    except Exception as e:
+        error(because(f(message, *args, **kwargs), str(e)))
+
+@contextlib.contextmanager
+def warn(message, *args, **kwargs):
+    try: yield
+    except Exception as e:
+        log(because(f(message, *args, **kwargs), str(e)))
+
+################
+# Execution control
+
+# Implements dry runs.  Calls fun(*args, **kwargs) if DRY_RUN is false.
+# Otherwise, prints the function and arguments that would be called.
+def dry(fun, *args, **kwargs):
+    if DRY_RUN: log('skipping due to dry run: {} on {} with {}', fun.__name__, args, kwargs)
+    else: fun(*args, **kwargs)
+
+# Used by commands that cannot dry-run.  Throws error if DRY_RUN is true.
+def not_dry(c):
+    if DRY_RUN: error('Dry run not supported by {}', c)
+
+# Run the process described by `args`
+def cmd(*args, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=None, dry_run=False):
+    if dry_run and DRY_RUN:
+        log('skipping due to dry run: {}', ' '.join(map(shlex.quote, args)))
+        return None
+    else:
+        with err('process failed: {}', ' '.join(map(shlex.quote, args))):
+            r = subprocess.run(args,
+                stdin=stdin, stdout=stdout, stderr=stderr, universal_newlines=True)
+            r.check_returncode()
+        return r.stdout
+
+##################
+# Generic helpers
+
+# `None` aware `or`
+def or_none(x, y): return x if x is not None else y
+
+# Simulate f"..." strings for Python 3.5
+def f(s, *args, **kwargs): return s.format(*args, **kwargs)
+
+# Print a log message with the 'emacs-preload' prefix
+def log(s, *args, **kwargs): print(f('emacs-preload: {}', f(s, *args, **kwargs)))
+
+# Print info messages, but only if QUIET is false.
+def info(s, *args, **kwargs):
+    if not QUIET:
+        log(s, *args, **kwargs)
+
+# `DirEntry` returned by os.scandir are more trouble than they are worth, so
+# just return the path
+def scandir(path): return [p.path for p in os.scandir(path)]
+
+# Return true if `socket` exists and is a socket
+def is_socket(socket): return os.path.exists(socket) and stat.S_ISSOCK(os.stat(socket).st_mode)
+
+# List the PID and command string of processes starting with `prefix`
+def pgrep(prefix):
+    with err('failed to get running processes'):
+        with err('failed to get list of all processes'):
+            output = cmd(PS, '-u', str(os.geteuid()), '-o', 'pid=,command=')
+        for line in output.strip().split('\n'):
+            with err('failed to parse process information line {}', line):
+                [pid, proc] = line.split(maxsplit=1)
+            if proc.startswith(prefix):
+                yield (pid, proc)
+
+######################
+# Domain-specific helpers
+
+# Evaluate an elisp expression
+def elisp(code): return cmd(EMACS, '--batch', '--eval', code, stderr=subprocess.DEVNULL)
+
+# Run `emacsclient` with a given socket
+def emacs_cl(socket, *args, **kwargs):
+    return cmd(EMACSCLIENT, '--quiet', '--socket-name', socket, *args, **kwargs)
+
+# Prefix that server processes start with in `ps`
+def server_prefix(): return f('{} --daemon=', EMACS)
+
+# Prefix striped from server processes in `ps` to get the socket name
+def socket_prefix(): return f('{}{}/{}', server_prefix(), SOCKET_DIR, PREFIX)
+
+# Convert a link path to a socket path
+def socket_from_link(path):
+    with err('failed to follow link {}', path):
+        return os.path.join(os.path.dirname(path), os.readlink(path))
+
+# Generator that lists available preload links
+def links(non_links=False):
+    with err(f('failed to list preload links in ', LINK_DIR)):
+        # TODO: note, lazy because connect needs only one
+        for link in scandir(LINK_DIR):
+            if os.path.basename(link).startswith(PREFIX):
+                if non_links or os.path.islink(link):
+                    yield link
+
+# Returns number of available preload links
+def link_count():
+    with err('failed to count preload links'):
+        return len(list(links()))
+
+# Returns number of clients connected to the server at `socket`
+def client_count(socket):
+    with err('failed to determine client count'):
+        with err('failed to connect to server at socket {}', socket):
+            count_str = emacs_cl(socket, '--eval', '(princ (length server-clients))')
+        with err('server returned non-integer count {}', count_str):
+            count_int = int(count_str)
+        return count_int - 1 # subtract one to not count ourselves
+
+# Generator that lists available preload sockets
+def sockets(non_sockets=False):
+    with err(f('failed to list preload sockets in {}', SOCKET_DIR)):
+        for socket in scandir(SOCKET_DIR):
+            if os.path.basename(socket).startswith(PREFIX):
+                if non_sockets or is_socket(socket):
+                    yield socket
+
+# Parse the `size` argument to `start` and `stop`
+def preload_size(s, default):
+    with err(f('failed to parse preload size {}', s)):
+        if s is None:
+            i = default
+        elif s[0] in '+': # TODO: +[0-9]+
+            i = link_count() + int(s[1:])
+        elif s[0] in '-': # TODO: -[0-9]+
+            i = link_count() - int(s[1:])
+        else: # TODO: [0-9]+
+            i = int(s)
+#TODO:        else: invalid size
+
+        if i >= 0: return i
+        else:
+            info('using zero instead of negative size i', i)
+            return 0
+
+# Reserve a server and its socket for our use as a client
+def claim_socket():
+    with err('failed to claim a socket file'):
+        files = links()
+        try: link = next(files)
+        except StopIteration as e:
+            error('no links available in {}', LINK_DIR)
+        socket = socket_from_link(link)
+        try: dry(os.remove, link)
+        except Exception as e:
+            if os.path.exists(link):
+                error(because(f('failed to remove link {}', link), str(e)))
+            else:
+                error(because(f('missing link {}', link), str(e)))
+        return socket
+
+################################
+# Subcommands
+
+# Print server status
+def status(args):
+    # TODO: avoid `i`
+    def socket_status(i):
+        check(os.path.basename(i).startswith(PREFIX),
+            'socket does not match {}PREFIX ({})', ENV_PREFIX, PREFIX)
+        check(os.path.exists(i),
+            'socket does not exist')
+        check(is_socket(i),
+            'file is not a socket')
+        clients = client_count(i)
+        print(f('    clients: {}\n', clients) +
+                '    status: all checks pass')
+
+    print('Configuration variables')
+    print('------------------------')
+    for (i, _, _) in configs():
+        print(f('{}{}={}', ENV_PREFIX, i, shlex.quote(str(globals()[i]))))
+    print()
+
+    print(f('Links in {}', LINK_DIR))
+    print('------------------------')
+    with warn('failed to read link directory {}', LINK_DIR):
+        for i in scandir(LINK_DIR):
+            try:
+                print(f('{}:', i))
+                check(os.path.basename(i).startswith(PREFIX),
+                    'name does not match {}PREFIX ({})', ENV_PREFIX, PREFIX)
+                check(os.path.islink(i),
+                    'file is not a link')
+                socket = socket_from_link(i)
+                print(f('    target: {}', socket))
+                socket_status(socket)
+            except Err as e:
+                print('    status: ' + e.message)
+    print()
+
+    print(f('Sockets in {}', SOCKET_DIR))
+    print('------------------------')
+    with warn('failed to read socket directory {}', SOCKET_DIR):
+        for i in scandir(SOCKET_DIR):
+            try:
+                print(f('{}:', i))
+                socket_status(i)
+            except Err as e:
+                print('    status: ' + e.message)
+    print()
+
+    print('Servers')
+    print('------------------------')
+    with warn('failed to list servers'):
+        for (pid, command) in pgrep(socket_prefix()):
+            print(f('{} {}', pid, command))
+    print()
+
+    print('Clients')
+    print('------------------------')
+    with warn('failed to list clients'):
+        for (pid, command) in pgrep(EMACSCLIENT):
+            print(f('{} {}', pid, command))
+    print()
+
+# Start emacs servers
+def start(args):
+    not_dry('start')
+    init(args)
+    size = preload_size(args.size, SIZE)
+    while link_count() < size:
+        info('creating server (have {}, want {})', link_count(), size)
+        with err('failed to create socket file in {}', SOCKET_DIR):
+            (fd, socket) = tempfile.mkstemp(dir=SOCKET_DIR, prefix=PREFIX)
+            os.close(fd)
+        with err('failed to create emacs server for socket file {}', socket):
+            cmd(EMACS, '--daemon='+socket,
+                stdout=subprocess.DEVNULL if QUIET else None,
+                stderr=subprocess.DEVNULL if QUIET else None)
+        with err('failed to create link from {} to socket {}', LINK_DIR, socket):
+            os.symlink(socket, os.path.join(LINK_DIR, os.path.basename(socket)))
+        time.sleep(START_DELAY)
+    info('done creating servers (have {}, want {})', link_count(), size)
+
+# Stop emacs servers
+def stop(args):
+    not_dry('stop')
+    size = preload_size(args.size, 0)
+    while link_count() > size:
+        info('stopping server (have {}, want {})', link_count(), size)
+        socket = claim_socket()
+        with err('failed to send (kill-emacs) to server at {}', socket):
+            emacs_cl(socket, '--eval', '(kill-emacs)')
+            # TODO: Loop until complete?
+        time.sleep(STOP_DELAY) # needed so servers after the first shutdown cleanly
+    info('done stopping servers (have {}, want {})', link_count(), size)
+
+# Connect to a server
+def connect(args):
+    start_time = time.time()
+    attempts = 0
+    while True:
+        attempts += 1
+        elapsed_time = time.time() - start_time
+        if attempts > CONNECT_ATTEMPTS:
+            error('failed to connect after {} attempts', attempts)
+        if elapsed_time > CONNECT_TIMEOUT:
+            error('failed to connect after {} seconds', elapsed_time)
+        try:
+            socket = claim_socket()
+        except Err as e:
+            time.sleep(CONNECT_DELAY)
+        else:
+            with err('failed to set PWD on server at {}', socket):
+                # TODO: anything other than PWD we need to set?
+                # TODO: escape PWD
+                # TODO: Note that `emacsclient --socket-name` accepts absolute paths
+                # TODO: The default creates a frame, but this can (?) be overrided by passing `-nw`
+                emacs_cl(socket, '--eval', f('(setenv "PWD" "{}")', os.getcwd()),
+                    dry_run=True, stdout=subprocess.DEVNULL)
+            with err('failed to connect to server at {}', socket):
+                emacs_cl(socket, '--create-frame', *args.args, dry_run=True)
+            # TODO: if can avoid kill-emacs, then use exec
+            with err('failed to kill server at {}', socket):
+                emacs_cl(socket, '--eval', '(kill-emacs)', dry_run=True)
+            sys.exit(0)
+
+# Cleanup incomplete and broken servers
+def cleanup(args):
+    socket_map = {}
+    # Remove link if cannot connect or server already in use
+    for link in links(non_links=True):
+        if not os.path.islink(link):
+            info('skipping non-link {}', link)
+        else:
+            try:
+                socket = socket_from_link()
+                clients = client_count(link)
+                check(clients > 0,
+                    'already in use by {} clients', clients)
+                socket_map[socket.path] = link
+            except Err as e:
+                info(because(f('removing link {}', link), e.message))
+                with err(f('failed to remove link {}', link)):
+                    dry(os.remove, link)
+
+    # Remove socket if no link and either cannot connect or no clients
+    # currently connected
+    for socket in sockets(non_sockets=True):
+        if socket in socket_map:
+            info('skipping socket {} due to having link {}', socket, socket_map[socket])
+        elif not is_socket(socket):
+            info('skipping non-socket {}', socket)
+        else:
+            try:
+                clients = client_count(socket)
+            except Err as e:
+                info(because(
+                    f('removing socket at {} due to no connection to the server', socket),
+                    e.message))
+                with err('failed to remove socket {}', socket):
+                    dry(os.remove, socket)
+            else:
+                if clients == 0:
+                    info('sending (kill-emacs) to server at {}'
+                        ' due to having no link and no clients', socket)
+                    with err('failed to kill emacs server at {}', socket):
+                        emacs_cl(socket, '--eval', '(kill-emacs)', dry_run=True)
+            # TODO: SIGTERM in cleanup?
+# TODO: determine what is of use in the shell script
+
+def kill_servers(non_orphans):
+    with err('failed to list servers'):
+        servers = pgrep(socket_prefix())
+    for (pid, command) in servers:
+        pid = int(pid)
+        socket = command[len(server_prefix()):]
+        if non_orphans or not is_socket(socket):
+            info('sending SIGKILL to emacs server (pid {}, socket {})', pid, socket)
+            with err('failed to send SIGKILL to emacs server (pid {}, socket {})', pid, socket):
+                dry(os.kill, pid, signal.SIGKILL)
+# TODO: SIGTERM
+
+# TODO: better factoring of kill
+def kill_all(arg): kill_servers(True)
+def kill_orphans(arg): kill_servers(False)
+
+def run(args):
+    not_dry('run')
+    # TODO: minor race condition means that number of servers remaining after
+    # connect may be less by one (sometimes)
+    if os.fork() == 0:
+        # Double fork so we don't create a zombie
+        if os.fork() == 0:
+            os.setsid() # Ignore Ctrl-C from the terminal
+            # TODO: get argv[0]
+            globals()['QUIET'] = True
+            start(args)
+        else:
+            sys.exit(0)
+    else:
+        connect(args)
+
+def init(args):
+    with err('failed to create preload link directory {}', LINK_DIR):
+        dry(os.makedirs, LINK_DIR, exist_ok=True)
+
+################
+# Initialization and driver
+
+# TODO: expanded description for subcommand
+# TODO: expanded description for full command
+# TODO: describe environment variables
+
+# Parse command-line arguments
+def parse_args():
+    def subcommand(func, *args, **kwargs):
+        c = s.add_parser(func.__name__.replace('_', '-'), *args, **kwargs)
+        c.set_defaults(action=func)
+        return c
+
+    # TODO: flags must be before sub-command
+    # TODO: usage: emacs-preaload [opts] [subcommand] instead of putting all options there
+    p = argparse.ArgumentParser(description='TODO description', fromfile_prefix_chars='@')
+
+    # Option flags
+    for (key, value, documentation) in configs():
+        p.add_argument('--'+key.lower().replace('_', '-'),
+            action='store_true' if isinstance(value, bool) else 'store',
+            help=documentation)
+
+    # TODO: "help" subcommand
+
+    # Subcommands
+    s = p.add_subparsers(title='subcommands', dest='subcommand')
+    s.required = True # Workaround for bug in `argparse` (as of Python 3.5)
+
+    # TODO: descriptions
+    c = subcommand(run, help='open emacsclient')
+    c.add_argument('args', nargs='*', help='arguments to emacsclient')
+
+    c = subcommand(status, help='print server statuses')
+
+    c = subcommand(init, help='create link directory')
+
+    c = subcommand(start, help='start emacs servers')
+    c.add_argument('size', nargs='?', help='number of servers to start'
+        + ' (relative when prefixed wth + or -, absolute otherwise)')
+
+    c = subcommand(stop, help='stop emacs servers')
+    c.add_argument('size', nargs='?', help='number of servers to leave running'
+        + ' (relative when prefixed wth + or -, absolute otherwise)')
+
+    c = subcommand(connect, help='connect to a server')
+    c.add_argument('args', nargs='*', help='todo')
+
+    c = subcommand(cleanup, help='cleanup incomplete and broken servers')
+
+    c = subcommand(kill_orphans, help='kill orphans')
+
+    c = subcommand(kill_all, help='kill all servers')
+
+#TODO: supress --help on `run`
+#TODO: ... help run
+    return p.parse_args()
+
+# Initialize global variables based on command-line flags, environment
+# variables or default values
+def initialize_globals(args):
+    for (k, v, _) in configs():
+        value = vars(args)[k.lower()]
+        if value is None:
+            value = os.getenv(f('{}{}', ENV_PREFIX, k))
+        if value is None:
+            value = v
+        globals()[k] = value
+
+    if QUERY_EMACS:
+        with err('failed to query emacs for LINK_DIR'):
+            globals()['LINK_DIR'] = elisp(
+                '(princ (expand-file-name (locate-user-emacs-file "preload")))')
+        with err('failed to query emacs for SOCKET_DIR'):
+            globals()['SOCKET_DIR'] = elisp(
+                '(progn (require \'server) (princ (expand-file-name server-socket-dir)))')
+
+def main():
+    try:
+        args = parse_args()
+        initialize_globals(args)
+        args.action(args)
+    except Err as e:
+        log(e.message)
+        sys.exit(1)
+# TODO:    except Exception as e:
+    sys.exit(0)
+
+if __name__ == '__main__':
+    main()
+# TODO: usage
+# TODO: readonly delare
+# TODO: performance in help
+
+# TODO: cleanup
+      #never removes connected or freshly started servers,
+      #removes old servers
+
+# TODO: kill-orphans
+      # kills orphaned servers
+      # will disconnect any clients that are connected to that server
+      # not part of stop or cleanup since is no way to tell if the server has connected clients
+
+# TODO: kill-all
+      # remove all links and sockets and kill all servers
+      # will disconnect any clients that are connected to a server
+      # only way to kill servers without a socket (b/c we can't check if something is connected)
+
+
+################
+# Development notes
+
+# No third party libraries
+# Prefer library over cmd
+# Should work on MacOS
+# Might work on windows if 'ps' is installed
+
+# - Linters:
+#   + pylint
+#   + pycodestyle
+#   + pydocstyle
+#   + flake8
