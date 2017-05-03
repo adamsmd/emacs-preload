@@ -2,6 +2,7 @@
 
 import argparse
 import contextlib
+import functools
 import os
 import shlex
 import signal
@@ -405,7 +406,8 @@ def connect(args):
                 emacs_cl(socket, '--eval', f('(setenv "PWD" "{}")', os.getcwd()),
                     dry_run=True, stdout=subprocess.DEVNULL)
             with err('failed to connect to server at {}', socket):
-                emacs_cl(socket, '--create-frame', *args.args, dry_run=True)
+                emacs_cl(socket, '--create-frame', *args.args,
+                    stdin=None, stdout=None, stderr=None, dry_run=True)
             # TODO: if can avoid kill-emacs, then use exec
             with err('failed to kill server at {}', socket):
                 emacs_cl(socket, '--eval', '(kill-emacs)', dry_run=True)
@@ -453,40 +455,49 @@ def cleanup(args):
                     with err('failed to kill emacs server at {}', socket):
                         emacs_cl(socket, '--eval', '(kill-emacs)', dry_run=True)
             # TODO: SIGTERM in cleanup?
-# TODO: determine what is of use in the shell script
 
-def kill_servers(non_orphans):
+# Kill running servers
+def kill_servers(orphans_only, args):
     with err('failed to list servers'):
         servers = pgrep(socket_prefix())
     for (pid, command) in servers:
         pid = int(pid)
         socket = command[len(server_prefix()):]
-        if non_orphans or not is_socket(socket):
+        if not orphans_only or not is_socket(socket):
             info('sending SIGKILL to emacs server (pid {}, socket {})', pid, socket)
             with err('failed to send SIGKILL to emacs server (pid {}, socket {})', pid, socket):
                 dry(os.kill, pid, signal.SIGKILL)
 # TODO: SIGTERM
 
-# TODO: better factoring of kill
-def kill_all(arg): kill_servers(True)
-def kill_orphans(arg): kill_servers(False)
-
+# Combines `connect` with `start` in the background
 def run(args):
     not_dry('run')
     # TODO: minor race condition means that number of servers remaining after
     # connect may be less by one (sometimes)
-    if os.fork() == 0:
-        # Double fork so we don't create a zombie
-        if os.fork() == 0:
-            os.setsid() # Ignore Ctrl-C from the terminal
-            # TODO: get argv[0]
-            globals()['QUIET'] = True
-            start(args)
-        else:
-            sys.exit(0)
+
+    # Run `start` in a background process
+    with err('failed to fork background process for `start`'):
+        pid = os.fork()
+    if pid == 0:
+        with err('failed to create background process for `start`'):
+            with err('failed to detach'):
+                os.setsid() # Detach from the parent process and terminal
+            with err('failed to fork'):
+                pid = os.fork()
+            if pid == 0:
+                # TODO: set argv[0]
+                with err('failed to change to root directory'):
+                    os.chdir('/') # Avoid holding directories open
+                globals()['QUIET'] = True # Silence everything except errors
+                start(args)
+            else:
+                sys.exit(0)
     else:
+        with err('failed waiting on child process for `start`'):
+            os.waitpid(pid, 0) # Avoid zombie process from outer fork
         connect(args)
 
+# Create the directory for links to servers
 def init(args):
     with err('failed to create preload link directory {}', LINK_DIR):
         dry(os.makedirs, LINK_DIR, exist_ok=True)
@@ -500,8 +511,10 @@ def init(args):
 
 # Parse command-line arguments
 def parse_args():
-    def subcommand(func, *args, **kwargs):
-        c = s.add_parser(func.__name__.replace('_', '-'), *args, **kwargs)
+    def subcommand(func, name=None, *args, **kwargs):
+        if name is None:
+            name = func.__name__
+        c = s.add_parser(name.replace('_', '-'), *args, **kwargs)
         c.set_defaults(action=func)
         return c
 
@@ -522,12 +535,12 @@ def parse_args():
     s.required = True # Workaround for bug in `argparse` (as of Python 3.5)
 
     # TODO: descriptions
-    c = subcommand(run, help='open emacsclient')
+    c = subcommand(run, help='connect to a server and start new servers in the background')
     c.add_argument('args', nargs='*', help='arguments to emacsclient')
 
     c = subcommand(status, help='print server statuses')
 
-    c = subcommand(init, help='create link directory')
+    c = subcommand(init, help='create the directory for links to servers')
 
     c = subcommand(start, help='start emacs servers')
     c.add_argument('size', nargs='?', help='number of servers to start'
@@ -542,9 +555,9 @@ def parse_args():
 
     c = subcommand(cleanup, help='cleanup incomplete and broken servers')
 
-    c = subcommand(kill_orphans, help='kill orphans')
+    c = subcommand(functools.partial(kill_servers, True), name='kill-orphans', help='kill orphaned servers')
 
-    c = subcommand(kill_all, help='kill all servers')
+    c = subcommand(functools.partial(kill_servers, False), name='kill-all', help='kill all servers')
 
 #TODO: supress --help on `run`
 #TODO: ... help run
@@ -600,14 +613,23 @@ if __name__ == '__main__':
       # will disconnect any clients that are connected to a server
       # only way to kill servers without a socket (b/c we can't check if something is connected)
 
+# TODO: README
+
 
 ################
 # Development notes
 
-# No third party libraries
-# Prefer library over cmd
-# Should work on MacOS
-# Might work on windows if 'ps' is installed
+# Self contained:
+#  - No installation needed
+#  - No third party libraries needed
+# Cross platform:
+#  - Linux
+#  - MacOS
+#  - Maybe Windows (if someone wants to port it)
+#    - Could need `ps`
+# Performance:
+#  - Startup should be below human perception threshold
+#  - Prefer library methods over spawning processes
 
 # - Linters:
 #   + pylint
