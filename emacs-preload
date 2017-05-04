@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 
-__version__ = '0.1 ($Revision$)'
-
 import argparse
+import base64
+import collections
 import contextlib
 import functools
+import hashlib
+import inspect
 import os
+import pathlib
+import re
 import shlex
 import signal
 import stat
@@ -14,6 +18,11 @@ import sys
 import tempfile
 import time
 import traceback
+
+# NOTE: the sha1 in __version__ can be computed manually with:
+#   cat emacs-preload | openssl dgst -binary -sha1 | openssl base
+__version__ = '0.1 (sha1 ' + str(base64.b64encode(hashlib.sha1(pathlib.Path(inspect.getsourcefile(
+    lambda: None)).read_bytes()).digest()), encoding='utf-8') + ')'
 
 # emacs-preload
 #
@@ -74,6 +83,10 @@ import traceback
 ##    "~/.emacs.d/")
 ##       (format "%s/emacs%d" (or (getenv "TMPDIR") "/tmp") (user-uid)))
 
+# TODO: Three parts
+#   links
+#   sockets
+#   servers
 
 # TODO: true top level? FOO = (False, 'doc')
 ENV_PREFIX = 'EMACS_PRELOAD_'
@@ -99,23 +112,17 @@ def configs():
         ('LINK_DIR', link_dir, 'directory in which to place links'),
         ('SOCKET_DIR', socket_dir, 'the directory in which emacs stores its sockets')]
 
-# TODO: better documentation of subcommands (i.e., both short and long form)
-
-# TODO: Three parts
-#   links
-#   sockets
-#   servers
-
 ################
 # Errors
 
 class Err(Exception):
-    def __init__(self, message, *args, **kwargs):
+    def __init__(self, lineno, message):
         Exception.__init__(self)
-        self.message = f(message, *args, **kwargs)
+        self.message = f('[#{}] {}', lineno, message)
 
 def error(message, *args, **kwargs):
-    raise Err(f(message, *args, **kwargs))
+    lineno = traceback.extract_stack(limit=2)[0].lineno
+    raise Err(lineno, f(message, *args, **kwargs))
 
 def check(val, message, *args, **kwargs):
     if val: return val
@@ -132,11 +139,9 @@ def err(message, *args, **kwargs):
     lineno = traceback.extract_stack(limit=3)[0].lineno
     try: yield
     except Err as e:
-        _, _, tb = sys.exc_info()
-        error(because(f('[{}] {}', lineno, f(message, *args, **kwargs)), e.message))
+        raise Err(lineno, because(f(message, *args, **kwargs), e.message))
     except Exception as e:
-        _, _, tb = sys.exc_info()
-        error(because(f('(#{}) {}', lineno, f(message, *args, **kwargs)), str(e)))
+        raise Err(lineno, because(f(message, *args, **kwargs)), str(e))
 
 @contextlib.contextmanager
 def warn(message, *args, **kwargs):
@@ -236,7 +241,7 @@ def socket_from_link(path):
 # Generator that lists available preload links
 def links(non_links=False):
     with err(f('failed to list preload links in ', LINK_DIR)):
-        # TODO: note, lazy because connect needs only one
+        # NOTE: lazy generator because `claim_socket` needs only one
         for link in scandir(LINK_DIR):
             if os.path.basename(link).startswith(PREFIX):
                 if non_links or os.path.islink(link):
@@ -266,16 +271,17 @@ def sockets(non_sockets=False):
 
 # Parse the `size` argument to `start` and `stop`
 def preload_size(s, default):
-    with err(f('failed to parse preload size {}', s)):
+    with err(f('failed to parse preload size `{}`', s)):
         if s is None:
             i = default
-        elif s[0] in '+': # TODO: +[0-9]+
+        elif re.fullmatch('\\+[0-9]+', s) is not None:
             i = link_count() + int(s[1:])
-        elif s[0] in '-': # TODO: -[0-9]+
+        elif re.fullmatch('\\-[0-9]+', s) is not None:
             i = link_count() - int(s[1:])
-        else: # TODO: [0-9]+
+        elif re.fullmatch('[0-9]+', s) is not None:
             i = int(s)
-#TODO:        else: invalid size
+        else:
+            error('invalidly formatted size `{}`', s)
 
         if i >= 0: return i
         else:
@@ -303,35 +309,34 @@ def claim_socket():
 
 # Print server status
 def status(args):
-    # TODO: avoid `i`
-    def socket_status(i):
-        check(os.path.basename(i).startswith(PREFIX),
+    def socket_status(socket):
+        check(os.path.basename(socket).startswith(PREFIX),
             'socket does not match {}PREFIX ({})', ENV_PREFIX, PREFIX)
-        check(os.path.exists(i),
+        check(os.path.exists(socket),
             'socket does not exist')
-        check(is_socket(i),
+        check(is_socket(socket),
             'file is not a socket')
-        clients = client_count(i)
+        clients = client_count(socket)
         print(f('    clients: {}\n', clients) +
                 '    status: all checks pass')
 
     print('Configuration variables')
     print('------------------------')
-    for (i, _, _) in configs():
-        print(f('{}{}={}', ENV_PREFIX, i, shlex.quote(str(globals()[i]))))
+    for (name, _, _) in configs():
+        print(f('{}{}={}', ENV_PREFIX, name, shlex.quote(str(globals()[name]))))
     print()
 
     print(f('Links in {}', LINK_DIR))
     print('------------------------')
     with warn('failed to read link directory {}', LINK_DIR):
-        for i in scandir(LINK_DIR):
+        for link in scandir(LINK_DIR):
             try:
-                print(f('{}:', i))
-                check(os.path.basename(i).startswith(PREFIX),
+                print(f('{}:', link))
+                check(os.path.basename(link).startswith(PREFIX),
                     'name does not match {}PREFIX ({})', ENV_PREFIX, PREFIX)
-                check(os.path.islink(i),
+                check(os.path.islink(link),
                     'file is not a link')
-                socket = socket_from_link(i)
+                socket = socket_from_link(link)
                 print(f('    target: {}', socket))
                 socket_status(socket)
             except Err as e:
@@ -341,10 +346,10 @@ def status(args):
     print(f('Sockets in {}', SOCKET_DIR))
     print('------------------------')
     with warn('failed to read socket directory {}', SOCKET_DIR):
-        for i in scandir(SOCKET_DIR):
+        for socket in scandir(SOCKET_DIR):
             try:
-                print(f('{}:', i))
-                socket_status(i)
+                print(f('{}:', socket))
+                socket_status(socket)
             except Err as e:
                 print('    status: ' + e.message)
     print()
@@ -524,7 +529,7 @@ def init(args):
 
 # Parse command-line arguments
 def parse_args():
-    commands={} # TODO: OrderedDict
+    commands=collections.OrderedDict() # OrderedDict so printed in a consistent order
 
     def subcommand(func, name=None, *args, **kwargs):
         if name is None:
@@ -536,7 +541,9 @@ def parse_args():
         commands[name] = c
         return c
 
-    # TODO: do not use '@file' because arguments to subcommand must be passed on unchanged
+    # NOTE: we do not use the '@file' convention because arguments to
+    #     subcommand must be passed unchanged
+
     # TODO: flags must be before sub-command
     # TODO: usage: emacs-preaload [opts] [subcommand] instead of putting all options there
     p = argparse.ArgumentParser(description='TODO description')
@@ -644,7 +651,6 @@ def main():
 
 if __name__ == '__main__':
     main()
-# TODO: usage
 # TODO: readonly delare
 # TODO: performance in help
 
