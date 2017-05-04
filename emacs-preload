@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-__version__ = '$Revision$'
+__version__ = '0.1 ($Revision$)'
 
 import argparse
 import contextlib
@@ -542,12 +542,11 @@ def parse_args():
     p = argparse.ArgumentParser(description='TODO description')
 
     # Option flags
+    c = p.add_argument('--version', action='version', version=f('emacs-preload version {}', __version__))
     for (key, value, documentation) in configs():
         p.add_argument('--'+key.lower().replace('_', '-'),
             action='store_true' if isinstance(value, bool) else 'store',
             help=documentation)
-
-    # TODO: "help" subcommand
 
     # Subcommands
     s = p.add_subparsers(title='subcommands', dest='subcommand')
@@ -567,7 +566,6 @@ def parse_args():
         return f('''Target number of servers to have running.  Defaults to {}.
             Relative when starts with `+` or `-`.  Absolute otherwise.''', size)
 
-    # TODO: descriptions
     c = subcommand(run,
         help='''Main `emacs-preload` subcommand.  Connect to a preload server and in the
             background start new servers.''',
@@ -595,6 +593,7 @@ def parse_args():
         description='''Connect to an available preload server.''')
     c.add_argument('args', nargs='*', help=args_help)
 
+    # TODO: descriptions
     c = subcommand(cleanup, help='Cleanup incomplete and broken servers',
         description='''x''') # TODO: always safe, handles things that dissapear (still debugging why so common).  May require kill-orphans or kill-all
 
@@ -606,9 +605,6 @@ def parse_args():
     c = subcommand(help, help='Prints help for subcommands', description='Prints help for the given subcommand')
     c.add_argument('subcommand', metavar='subcommand', choices=commands.keys(), action='store',
         help=f('The subcommand for which to print help (choose from \'{}\')', '\', \''.join(commands.keys())))
-
-    c = subcommand(
-# parser.add_argument('--version', action='version', version='%(prog)s 2.0')
 
     # Arguments to subcommand should not be interpreted because `connect`
     # and `run` pass them on to `emacsclient`
