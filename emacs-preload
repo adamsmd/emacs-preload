@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+__version__ = '$Revision:$'
+
 import argparse
 import contextlib
 import functools
@@ -111,7 +113,6 @@ class Err(Exception):
     def __init__(self, message, *args, **kwargs):
         Exception.__init__(self)
         self.message = f(message, *args, **kwargs)
-        # TODO: line numbers in errors
 
 def error(message, *args, **kwargs):
     raise Err(f(message, *args, **kwargs))
@@ -185,9 +186,8 @@ def info(s, *args, **kwargs):
     if not QUIET:
         log(s, *args, **kwargs)
 
+# Forces the arguments of ArgumentParser `c` to never be options
 def literal_args(c):
-    # Arguments to subcommand should not be interpreted because `connect`
-    # and `run` pass them on to `emacsclient`
     if len(c._actions) > 0:
         old_parse = c.parse_known_args
         def new_parse(args=None, namespace=None):
@@ -524,7 +524,7 @@ def init(args):
 
 # Parse command-line arguments
 def parse_args():
-    commands={}
+    commands={} # TODO: OrderedDict
 
     def subcommand(func, name=None, *args, **kwargs):
         if name is None:
@@ -559,40 +559,62 @@ def parse_args():
         elif args.subcommand in commands:
             commands[args.subcommand].print_help()
         else:
-            error('no subcommand {}', args.subcommand)
+            error('no subcommand {}. ', args.subcommand)
 
-    c = subcommand(help, help='TODO')
-    c.add_argument('subcommand', nargs='?', action='store', help='TODO')
+    args_help = f('''Arguments to `emacsclient`.  Not parsed by `emacs-preload`.  Passed unchanged to `emacsclient`.''')
+
+    def size_help(size):
+        return f('''Target number of servers to have running.  Defaults to {}.
+            Relative when starts with `+` or `-`.  Absolute otherwise.''', size)
 
     # TODO: descriptions
-    c = subcommand(run, help='connect to a server and start new servers in the background')
-    c.add_argument('args', nargs='*', help='arguments to emacsclient')
+    c = subcommand(run,
+        help='''Main `emacs-preload` subcommand.  Connect to a preload server and in the
+            background start new servers.''',
+        description='''Main `emacs-preload` subcommand.  Uses `connect` to connect to an available
+            preload server, while using `start` in the background to launch new servers.''')
+    c.add_argument('args', nargs='*', help=args_help)
 
-    c = subcommand(status, help='print server statuses')
+    c = subcommand(status, help='Print preload status',
+        description='''Print status of preload configuration, links, sockets, servers, and clients.''')
 
-    c = subcommand(init, help='create the directory for links to servers')
+    c = subcommand(start, help='Start preload servers',
+        description='''Start new preload servers until at least `size` servers are running.''')
+    c.add_argument('size', nargs='?', help=size_help(f('the value of {}SIZE', ENV_PREFIX)))
 
-    c = subcommand(start, help='start emacs servers')
-    c.add_argument('size', nargs='?', help='number of servers to start'
-        + ' (relative when prefixed wth + or -, absolute otherwise)')
+    c = subcommand(stop, help='Stop preload servers',
+        description='''Stop running preload servers until at most `size` servers are running.''')
+    c.add_argument('size', nargs='?', help=size_help(f('zero')))
 
-    c = subcommand(stop, help='stop emacs servers')
-    c.add_argument('size', nargs='?', help='number of servers to leave running'
-        + ' (relative when prefixed wth + or -, absolute otherwise)')
+    c = subcommand(init, help='Create the directory holding links to preload servers',
+        description=f('''Create the directory specified by {}LINK_DIR, which is where links to
+            preload servers are kept.  Called automatically by subcommands
+            that need that directory.  Rarely needs to be called manually.''', ENV_PREFIX))
 
-    c = subcommand(connect, help='connect to a server')
-    c.add_argument('args', nargs='*', help='todo')
+    c = subcommand(connect, help='Connect to a preload server',
+        description='''Connect to an available preload server.''')
+    c.add_argument('args', nargs='*', help=args_help)
 
-    c = subcommand(cleanup, help='cleanup incomplete and broken servers')
+    c = subcommand(cleanup, help='Cleanup incomplete and broken servers',
+        description='''x''') # TODO: always safe, handles things that dissapear (still debugging why so common).  May require kill-orphans or kill-all
 
     c = subcommand(functools.partial(kill_servers, True), name='kill-orphans', help='kill orphaned servers')
 
     c = subcommand(functools.partial(kill_servers, False), name='kill-all', help='kill all servers')
 
+    # Last so we can get a list of all commands
+    c = subcommand(help, help='Prints help for subcommands', description='Prints help for the given subcommand')
+    c.add_argument('subcommand', metavar='subcommand', choices=commands.keys(), action='store',
+        help=f('The subcommand for which to print help (choose from \'{}\')', '\', \''.join(commands.keys())))
+
+    c = subcommand(
+# parser.add_argument('--version', action='version', version='%(prog)s 2.0')
+
+    # Arguments to subcommand should not be interpreted because `connect`
+    # and `run` pass them on to `emacsclient`
     for c in commands.values(): literal_args(c)
 
     return p.parse_args()
-# TODO: version
 
 # Initialize global variables based on command-line flags, environment
 # variables or default values
