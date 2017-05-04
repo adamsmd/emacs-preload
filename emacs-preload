@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-__version__ = '$Revision:$'
+__version__ = '$Revision$'
 
 import argparse
 import contextlib
