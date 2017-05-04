@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import traceback
 
 # emacs-preload
 #
@@ -82,8 +83,7 @@ def configs():
         ('DRY_RUN', False, 'print commands instead of executing them'),
         ('QUIET', False, 'supress info messages and startup messages from emacs servers'),
         ('QUERY_EMACS', False, 'call emacs to determine LINK_DIR and SOCKET_DIR.'
-         + ' Off by default for performance reasons.'
-         + ' Use only if not finding correct directories.'),
+         + ' Off by default for performance reasons.'),
         ('SIZE', 5, 'default number of servers to keep running'),
         ('EMACS', 'emacs', 'the emacs binary to use'),
         ('EMACSCLIENT', 'emacsclient', 'the emacsclient binary to use'),
@@ -125,13 +125,17 @@ def because(m1, m2): return f('{}\n    because {}', m1, m2)
 @contextlib.contextmanager
 def noop(): yield
 
+# TODO: err option to not use children
 @contextlib.contextmanager
 def err(message, *args, **kwargs):
+    lineno = traceback.extract_stack(limit=3)[0].lineno
     try: yield
     except Err as e:
-        error(because(f(message, *args, **kwargs), e.message))
+        _, _, tb = sys.exc_info()
+        error(because(f('[{}] {}', lineno, f(message, *args, **kwargs)), e.message))
     except Exception as e:
-        error(because(f(message, *args, **kwargs), str(e)))
+        _, _, tb = sys.exc_info()
+        error(because(f('(#{}) {}', lineno, f(message, *args, **kwargs)), str(e)))
 
 @contextlib.contextmanager
 def warn(message, *args, **kwargs):
@@ -180,6 +184,15 @@ def log(s, *args, **kwargs): print(f('emacs-preload: {}', f(s, *args, **kwargs))
 def info(s, *args, **kwargs):
     if not QUIET:
         log(s, *args, **kwargs)
+
+def literal_args(c):
+    # Arguments to subcommand should not be interpreted because `connect`
+    # and `run` pass them on to `emacsclient`
+    if len(c._actions) > 0:
+        old_parse = c.parse_known_args
+        def new_parse(args=None, namespace=None):
+            return old_parse(['--']+or_none(args, []), namespace)
+        c.parse_known_args = new_parse
 
 # `DirEntry` returned by os.scandir are more trouble than they are worth, so
 # just return the path
@@ -266,7 +279,7 @@ def preload_size(s, default):
 
         if i >= 0: return i
         else:
-            info('using zero instead of negative size i', i)
+            info('using zero instead of negative size {}', i)
             return 0
 
 # Reserve a server and its socket for our use as a client
@@ -422,7 +435,7 @@ def cleanup(args):
             info('skipping non-link {}', link)
         else:
             try:
-                socket = socket_from_link()
+                socket = socket_from_link(link)
                 clients = client_count(link)
                 check(clients > 0,
                     'already in use by {} clients', clients)
@@ -511,16 +524,22 @@ def init(args):
 
 # Parse command-line arguments
 def parse_args():
+    commands={}
+
     def subcommand(func, name=None, *args, **kwargs):
         if name is None:
             name = func.__name__
-        c = s.add_parser(name.replace('_', '-'), *args, **kwargs)
+        name = name.replace('_', '-')
+        # TODO: add_argument_group
+        c = s.add_parser(name, add_help=False, *args, **kwargs)
         c.set_defaults(action=func)
+        commands[name] = c
         return c
 
+    # TODO: do not use '@file' because arguments to subcommand must be passed on unchanged
     # TODO: flags must be before sub-command
     # TODO: usage: emacs-preaload [opts] [subcommand] instead of putting all options there
-    p = argparse.ArgumentParser(description='TODO description', fromfile_prefix_chars='@')
+    p = argparse.ArgumentParser(description='TODO description')
 
     # Option flags
     for (key, value, documentation) in configs():
@@ -533,6 +552,17 @@ def parse_args():
     # Subcommands
     s = p.add_subparsers(title='subcommands', dest='subcommand')
     s.required = True # Workaround for bug in `argparse` (as of Python 3.5)
+
+    def help(args):
+        if args.subcommand is None:
+            p.print_help()
+        elif args.subcommand in commands:
+            commands[args.subcommand].print_help()
+        else:
+            error('no subcommand {}', args.subcommand)
+
+    c = subcommand(help, help='TODO')
+    c.add_argument('subcommand', nargs='?', action='store', help='TODO')
 
     # TODO: descriptions
     c = subcommand(run, help='connect to a server and start new servers in the background')
@@ -559,9 +589,10 @@ def parse_args():
 
     c = subcommand(functools.partial(kill_servers, False), name='kill-all', help='kill all servers')
 
-#TODO: supress --help on `run`
-#TODO: ... help run
+    for c in commands.values(): literal_args(c)
+
     return p.parse_args()
+# TODO: version
 
 # Initialize global variables based on command-line flags, environment
 # variables or default values
