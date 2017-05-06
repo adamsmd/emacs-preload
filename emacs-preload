@@ -16,6 +16,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import textwrap
 import time
 import traceback
 
@@ -89,6 +90,7 @@ __version__ = '0.1 (sha1 ' + str(base64.b64encode(hashlib.sha1(pathlib.Path(insp
 #   servers
 
 # TODO: true top level? FOO = (False, 'doc')
+# TODO: describe environment variables
 ENV_PREFIX = 'EMACS_PRELOAD_'
 def configs():
     link_dir = os.path.expanduser('~/.emacs.d/preload')
@@ -431,7 +433,7 @@ def connect(args):
                 emacs_cl(socket, '--eval', '(kill-emacs)', dry_run=True)
             sys.exit(0)
 
-# Cleanup incomplete and broken servers
+# Cleanup broken servers
 def cleanup(args):
     socket_map = {}
     # Remove link if cannot connect or server already in use
@@ -470,7 +472,7 @@ def cleanup(args):
                 if clients == 0:
                     info('sending (kill-emacs) to server at {}'
                         ' due to having no link and no clients', socket)
-                    with err('failed to kill emacs server at {}', socket):
+                    with err('failed to (kill-emacs) on server at {}', socket):
                         emacs_cl(socket, '--eval', '(kill-emacs)', dry_run=True)
             # TODO: SIGTERM in cleanup?
 
@@ -523,20 +525,32 @@ def init(args):
 ################
 # Initialization and driver
 
-# TODO: expanded description for subcommand
-# TODO: expanded description for full command
-# TODO: describe environment variables
-
 # Parse command-line arguments
 def parse_args():
     commands=collections.OrderedDict() # OrderedDict so printed in a consistent order
 
-    def subcommand(func, name=None, *args, **kwargs):
+    # Taken from argparse.HelpFormatter.__init__
+    try:
+        width = int(os.environ['COLUMNS'])
+    except (KeyError, ValueError):
+        width = 80
+    width -= 2
+    # Taken from argparse.HelpFormatter._format_text
+    width = max(width, 11)
+
+    # Wrap documentation lines but recognize '\n\n' as a paragraph separator
+    def doc(d, *args, **kwargs):
+        paragraphs = [textwrap.fill(re.sub('\s+', ' ', p.strip()), width)
+            for p in f(d, *args, **kwargs).split('\n\n')]
+        return '\n\n'.join(paragraphs)
+
+    def subcommand(func, name=None, description=None, *args, **kwargs):
         if name is None:
             name = func.__name__
         name = name.replace('_', '-')
+
         # TODO: add_argument_group
-        c = s.add_parser(name, add_help=False, *args, **kwargs)
+        c = s.add_parser(name, description=description, add_help=False, formatter_class=argparse.RawDescriptionHelpFormatter, *args, **kwargs)
         c.set_defaults(action=func)
         commands[name] = c
         return c
@@ -544,9 +558,11 @@ def parse_args():
     # NOTE: we do not use the '@file' convention because arguments to
     #     subcommand must be passed unchanged
 
+    # TODO: option meta-vars
+    # TODO: expanded description for full command
     # TODO: flags must be before sub-command
     # TODO: usage: emacs-preaload [opts] [subcommand] instead of putting all options there
-    p = argparse.ArgumentParser(description='TODO description')
+    p = argparse.ArgumentParser(description='TODO description',)
 
     # Option flags
     c = p.add_argument('--version', action='version', version=f('emacs-preload version {}', __version__))
@@ -570,46 +586,88 @@ def parse_args():
     args_help = f('''Arguments to `emacsclient`.  Not parsed by `emacs-preload`.  Passed unchanged to `emacsclient`.''')
 
     def size_help(size):
-        return f('''Target number of servers to have running.  Defaults to {}.
+        return f('''Target number of servers to have running.  Defaults to {} if omitted.
             Relative when starts with `+` or `-`.  Absolute otherwise.''', size)
 
     c = subcommand(run,
         help='''Main `emacs-preload` subcommand.  Connect to a preload server and in the
             background start new servers.''',
-        description='''Main `emacs-preload` subcommand.  Uses `connect` to connect to an available
-            preload server, while using `start` in the background to launch new servers.''')
+        description=doc('''Main `emacs-preload` subcommand. Uses `connect` to connect to an available
+            preload server, while using `start` in the background to launch new servers.'''))
     c.add_argument('args', nargs='*', help=args_help)
 
     c = subcommand(status, help='Print preload status',
-        description='''Print status of preload configuration, links, sockets, servers, and clients.''')
+        description=doc('''Print status of preload configuration, links, sockets, servers, and clients.'''))
 
     c = subcommand(start, help='Start preload servers',
-        description='''Start new preload servers until at least `size` servers are running.''')
-    c.add_argument('size', nargs='?', help=size_help(f('the value of {}SIZE', ENV_PREFIX)))
+        description=doc('''Start new preload servers until at least `size` servers are running.'''))
+    c.add_argument('size', nargs='?', help=size_help(f('the value of SIZE')))
 
     c = subcommand(stop, help='Stop preload servers',
-        description='''Stop running preload servers until at most `size` servers are running.''')
+        description=doc('''Stop running preload servers until at most `size` servers are running.'''))
     c.add_argument('size', nargs='?', help=size_help(f('zero')))
 
     c = subcommand(init, help='Create the directory holding links to preload servers',
-        description=f('''Create the directory specified by {}LINK_DIR, which is where links to
-            preload servers are kept.  Called automatically by subcommands
-            that need that directory.  Rarely needs to be called manually.''', ENV_PREFIX))
+        description=doc('''Create the directory specified by LINK_DIR, which is where links to
+            preload servers are kept.
+
+            Rarely needs to be called manually as it is automatically called
+            by the subcommands that need the LINK_DIR directory.'''))
 
     c = subcommand(connect, help='Connect to a preload server',
-        description='''Connect to an available preload server.''')
+        description=doc('''Connect to an available preload server.  Picks a waiting server from those
+            in LINK_DIR, removes it from LINK_DIR, and connects to it with `emacsclient`.'''))
     c.add_argument('args', nargs='*', help=args_help)
 
+    cleanup_doc = '''
+            Normally emacs-preload cleans up after itself automatically.  If
+            it doesn't, you can use this command to manually cleanup.  We are
+            working to reduce how often this command is needed.'''
+
     # TODO: descriptions
-    c = subcommand(cleanup, help='Cleanup incomplete and broken servers',
-        description='''x''') # TODO: always safe, handles things that dissapear (still debugging why so common).  May require kill-orphans or kill-all
+      #never removes connected or freshly started servers,
+      #removes old servers
+    c = subcommand(cleanup, help='Cleanup broken servers',
+        description=doc('''Cleanup broken servers.
 
-    c = subcommand(functools.partial(kill_servers, True), name='kill-orphans', help='kill orphaned servers')
+            {}
 
-    c = subcommand(functools.partial(kill_servers, False), name='kill-all', help='kill all servers')
+            This command is always safe.  It will not close servers with
+            connected clients or fresh servers waiting for a client.  Because
+            this subcommand is guaranteed to be safe, it leaves alone servers
+            for which it cannot confirm that there are no clients.  Thus you
+            may need to use kill-orphans or kill-all subcommands to kill such
+            servers.
 
+            Removes links in LINK_DIR for unreachable servers and servers that
+            already have clients.  Removes sockets in SOCKET_DIR that do not
+            connect to a server.  Sends `(kill-emacs)` to servers that have no
+            client and are not in LINK_DIR.''', cleanup_doc))
+
+    def kill_doc(servers, commands):
+        return f('''{}
+
+            WARNING: Disconnects any `emacsclient` connected to {} preload
+            servers.  This is not part of `stop` or `cleanup` since there is
+            no way to tell if the servers skipped by `cleanup` have connected
+            clients.  This command should only be used when {} to fail to
+            shutdown a server.''',
+            cleanup_doc, servers, commands)
+
+    c = subcommand(functools.partial(kill_servers, True), name='kill-orphans', help='kill orphaned servers',
+        description=doc('''Kills all orphan preload servers, which are those for which there are no sockets in
+            SOCKET_DIR.
+
+            {}''', kill_doc('orphan', '`cleanup`')))
+
+    c = subcommand(functools.partial(kill_servers, False), name='kill-all', help='kill all servers',
+        description=doc('''Kills all preload servers.
+
+            {}''', kill_doc('', '`cleanup` and `kill-orphans`')))
+
+    # TODO: top level help if no subcommand
     # Last so we can get a list of all commands
-    c = subcommand(help, help='Prints help for subcommands', description='Prints help for the given subcommand')
+    c = subcommand(help, help='Prints help for subcommands', description=doc('''Prints help for the given subcommand'''))
     c.add_argument('subcommand', metavar='subcommand', choices=commands.keys(), action='store',
         help=f('The subcommand for which to print help (choose from \'{}\')', '\', \''.join(commands.keys())))
 
@@ -643,33 +701,16 @@ def main():
         args = parse_args()
         initialize_globals(args)
         args.action(args)
+    # Catch only Err exceptions.  Others are bugs, which we leave uncaught
     except Err as e:
         log(e.message)
         sys.exit(1)
-# TODO:    except Exception as e:
     sys.exit(0)
 
 if __name__ == '__main__':
     main()
-# TODO: readonly delare
-# TODO: performance in help
-
-# TODO: cleanup
-      #never removes connected or freshly started servers,
-      #removes old servers
-
-# TODO: kill-orphans
-      # kills orphaned servers
-      # will disconnect any clients that are connected to that server
-      # not part of stop or cleanup since is no way to tell if the server has connected clients
-
-# TODO: kill-all
-      # remove all links and sockets and kill all servers
-      # will disconnect any clients that are connected to a server
-      # only way to kill servers without a socket (b/c we can't check if something is connected)
 
 # TODO: README
-
 
 ################
 # Development notes
@@ -685,6 +726,8 @@ if __name__ == '__main__':
 # Performance:
 #  - Startup should be below human perception threshold
 #  - Prefer library methods over spawning processes
+# Safety:
+#  - TODO
 
 # - Linters:
 #   + pylint
