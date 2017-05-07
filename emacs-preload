@@ -4,6 +4,7 @@ import argparse
 import base64
 import collections
 import contextlib
+import distutils.util
 import functools
 import hashlib
 import inspect
@@ -102,17 +103,17 @@ def configs():
         ('QUERY_EMACS', False, 'call emacs to determine LINK_DIR and SOCKET_DIR.'
          + ' Off by default for performance reasons.'),
         ('SIZE', 5, 'default number of servers to keep running'),
-        ('EMACS', 'emacs', 'the emacs binary to use'),
-        ('EMACSCLIENT', 'emacsclient', 'the emacsclient binary to use'),
-        ('PS', 'ps', 'the ps binary to use for process listing'),
+        ('EMACS', ('FILE', 'emacs'), 'the emacs binary to use'),
+        ('EMACSCLIENT', ('FILE', 'emacsclient'), 'the emacsclient binary to use'),
+        ('PS', ('FILE', 'ps'), 'the ps binary to use for process listing'),
         ('START_DELAY', 0.1, 'seconds to wait between starting servers'),
         ('STOP_DELAY', 0.1, 'seconds to wait between stopping servers'),
         ('CONNECT_DELAY', 0.1, 'seconds between attempts to connect to a server'),
         ('CONNECT_ATTEMPTS', 600, 'maximum number of attempts to connect to a server'),
         ('CONNECT_TIMEOUT', 60.0, 'maximum seconds to keep attempting to connect to a server'),
         ('PREFIX', 'preload-', 'prefix to use for server names, links, and sockets'),
-        ('LINK_DIR', link_dir, 'directory in which to place links'),
-        ('SOCKET_DIR', socket_dir, 'the directory in which emacs stores its sockets')]
+        ('LINK_DIR', ('DIR', link_dir), 'directory in which to place links'),
+        ('SOCKET_DIR', ('DIR', socket_dir), 'the directory in which emacs stores its sockets')]
 
 ################
 # Errors
@@ -143,7 +144,7 @@ def err(message, *args, **kwargs):
     except Err as e:
         raise Err(lineno, because(f(message, *args, **kwargs), e.message))
     except Exception as e:
-        raise Err(lineno, because(f(message, *args, **kwargs)), str(e))
+        raise Err(lineno, because(f(message, *args, **kwargs), str(e)))
 
 @contextlib.contextmanager
 def warn(message, *args, **kwargs):
@@ -192,6 +193,22 @@ def log(s, *args, **kwargs): print(f('emacs-preload: {}', f(s, *args, **kwargs))
 def info(s, *args, **kwargs):
     if not QUIET:
         log(s, *args, **kwargs)
+
+# Wrap lines to terminal width but recognize '\n\n' as a paragraph separator
+def wrap_lines():
+    # TODO: not reading columns?
+    # Taken from argparse.HelpFormatter.__init__
+    try: width = int(os.environ['COLUMNS'])
+    except (KeyError, ValueError): width = 80
+    width -= 2
+    # Taken from argparse.HelpFormatter._format_text
+    width = max(width, 11)
+
+    def doc(d, *args, **kwargs):
+        paragraphs = [textwrap.fill(re.sub('\s+', ' ', p.strip()), width)
+            for p in f(d, *args, **kwargs).split('\n\n')]
+        return '\n\n'.join(paragraphs)
+    return doc
 
 # Forces the arguments of ArgumentParser `c` to never be options
 def literal_args(c):
@@ -527,67 +544,97 @@ def init(args):
 
 # Parse command-line arguments
 def parse_args():
-    commands=collections.OrderedDict() # OrderedDict so printed in a consistent order
+    # TODO: document
 
-    # Taken from argparse.HelpFormatter.__init__
-    try:
-        width = int(os.environ['COLUMNS'])
-    except (KeyError, ValueError):
-        width = 80
-    width -= 2
-    # Taken from argparse.HelpFormatter._format_text
-    width = max(width, 11)
+    ################################
+    # Documentation strings
 
-    # Wrap documentation lines but recognize '\n\n' as a paragraph separator
-    def doc(d, *args, **kwargs):
-        paragraphs = [textwrap.fill(re.sub('\s+', ' ', p.strip()), width)
-            for p in f(d, *args, **kwargs).split('\n\n')]
-        return '\n\n'.join(paragraphs)
-
-    def subcommand(func, name=None, description=None, *args, **kwargs):
-        if name is None:
-            name = func.__name__
-        name = name.replace('_', '-')
-
-        # TODO: add_argument_group
-        c = s.add_parser(name, description=description, add_help=False, formatter_class=argparse.RawDescriptionHelpFormatter, *args, **kwargs)
-        c.set_defaults(action=func)
-        commands[name] = c
-        return c
-
-    # NOTE: we do not use the '@file' convention because arguments to
-    #     subcommand must be passed unchanged
-
-    # TODO: option meta-vars
-    # TODO: expanded description for full command
-    # TODO: flags must be before sub-command
-    # TODO: usage: emacs-preaload [opts] [subcommand] instead of putting all options there
-    p = argparse.ArgumentParser(description='TODO description',)
-
-    # Option flags
-    c = p.add_argument('--version', action='version', version=f('emacs-preload version {}', __version__))
-    for (key, value, documentation) in configs():
-        p.add_argument('--'+key.lower().replace('_', '-'),
-            action='store_true' if isinstance(value, bool) else 'store',
-            help=documentation)
-
-    # Subcommands
-    s = p.add_subparsers(title='subcommands', dest='subcommand')
-    s.required = True # Workaround for bug in `argparse` (as of Python 3.5)
-
-    def help(args):
-        if args.subcommand is None:
-            p.print_help()
-        elif args.subcommand in commands:
-            commands[args.subcommand].print_help()
-        else:
-            error('no subcommand {}. ', args.subcommand)
+    doc = wrap_lines()
 
     args_help = f('''Arguments to `emacsclient`.  Not parsed by `emacs-preload`.  Passed unchanged to `emacsclient`.''')
 
     def size_help(size):
         return f('''Target number of servers to have running.  Defaults to {} if omitted.
             Relative when starts with `+` or `-`.  Absolute otherwise.''', size)
+
+    cleanup_doc = '''
+            Normally emacs-preload cleans up after itself automatically.  If
+            it doesn't, you can use this command to manually cleanup.  We are
+            working to reduce how often this command is needed.'''
+
+    def kill_doc(servers, commands):
+        return f('''{}
+
+            WARNING: Disconnects any `emacsclient` connected to {} preload
+            servers.  This is not part of `stop` or `cleanup` since there is
+            no way to tell if the servers skipped by `cleanup` have connected
+            clients.  This command should only be used when {} to fail to
+            shutdown a server.''',
+            cleanup_doc, servers, commands)
+
+    ################################
+    # Argument parser
+
+    # NOTE: we do not support the '@file' convention because arguments to
+    #     subcommand must be passed unchanged.  Thus no
+    #     `fromfile_prefix_chars` argument to `ArgumentParser`
+    p = argparse.ArgumentParser(usage='%(prog)s [options] <subcommand> ...',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description=doc('''TODO description'''))
+
+    # TODO: expanded description for full command
+    # TODO: flags must be before sub-command
+    # TODO: capitalize all documentation
+    # TODO: document environment
+
+    ################################
+    # Options
+    c = p.add_argument('--version', action='version', version=f('emacs-preload version {}', __version__))
+    for (key, value, documentation) in configs():
+        if isinstance(value, tuple): # Extract the manually defined metavar is there is any
+            metavar = value[0]
+            value = value[1]
+        else: # Otherwise, name the metavar after the type
+            metavar = type(value).__name__.upper()
+
+        # Determine default value and add to documentation
+        env_value = os.getenv(f('{}{}', ENV_PREFIX, key))
+        if env_value is None:
+            # Environment does not override default
+            documentation += f(' (default {})', value)
+        else:
+            # Environment does override default
+            documentation += f(' (default {}', value)
+            # TODO: document bool parsing
+            with err('could not parse {}{}', ENV_PREFIX, key):
+                if isinstance(value, bool):
+                    env_value = distutils.util.strtobool(env_value)
+                value = type(value)(env_value)
+            documentation += f(' but environment overrides to {})', value)
+
+        p.add_argument('--'+key.lower().replace('_', '-'), default=value, help=documentation,
+            **
+            # Simple Boolean flags
+            { 'action': 'store_true' } if isinstance(value, bool) else
+            # Options with arguments
+            { 'action': 'store', 'metavar': metavar })
+
+    ################################
+    # Subcommands
+    s = p.add_subparsers(title='subcommands', dest='subcommand')
+    s.required = True # Workaround for bug in `argparse` (as of Python 3.5)
+    commands=collections.OrderedDict() # OrderedDict so printed in a consistent order
+
+    def subcommand(func, name=None, description=None, *args, **kwargs):
+        if name is None:
+            name = func.__name__
+        name = name.replace('_', '-')
+
+        c = s.add_parser(name, prog=f('emacs-preload [options] {}', name), description=description,
+            add_help=False, formatter_class=argparse.RawDescriptionHelpFormatter, *args, **kwargs)
+        c.set_defaults(action=func)
+        commands[name] = c
+        return c
 
     c = subcommand(run,
         help='''Main `emacs-preload` subcommand.  Connect to a preload server and in the
@@ -619,14 +666,6 @@ def parse_args():
             in LINK_DIR, removes it from LINK_DIR, and connects to it with `emacsclient`.'''))
     c.add_argument('args', nargs='*', help=args_help)
 
-    cleanup_doc = '''
-            Normally emacs-preload cleans up after itself automatically.  If
-            it doesn't, you can use this command to manually cleanup.  We are
-            working to reduce how often this command is needed.'''
-
-    # TODO: descriptions
-      #never removes connected or freshly started servers,
-      #removes old servers
     c = subcommand(cleanup, help='Cleanup broken servers',
         description=doc('''Cleanup broken servers.
 
@@ -644,15 +683,6 @@ def parse_args():
             connect to a server.  Sends `(kill-emacs)` to servers that have no
             client and are not in LINK_DIR.''', cleanup_doc))
 
-    def kill_doc(servers, commands):
-        return f('''{}
-
-            WARNING: Disconnects any `emacsclient` connected to {} preload
-            servers.  This is not part of `stop` or `cleanup` since there is
-            no way to tell if the servers skipped by `cleanup` have connected
-            clients.  This command should only be used when {} to fail to
-            shutdown a server.''',
-            cleanup_doc, servers, commands)
 
     c = subcommand(functools.partial(kill_servers, True), name='kill-orphans', help='kill orphaned servers',
         description=doc('''Kills all orphan preload servers, which are those for which there are no sockets in
@@ -665,43 +695,49 @@ def parse_args():
 
             {}''', kill_doc('', '`cleanup` and `kill-orphans`')))
 
-    # TODO: top level help if no subcommand
-    # Last so we can get a list of all commands
+    def help(args):
+        if args.subcommand is None:
+            p.print_help()
+        elif args.subcommand in commands:
+            commands[args.subcommand].print_help()
+        else:
+            error('no subcommand {}. ', args.subcommand)
+
+    # Last so we can get a list of all subcommands
     c = subcommand(help, help='Prints help for subcommands', description=doc('''Prints help for the given subcommand'''))
-    c.add_argument('subcommand', metavar='subcommand', choices=commands.keys(), action='store',
+    c.add_argument('subcommand', metavar='subcommand', nargs='?', choices=commands.keys(), action='store',
         help=f('The subcommand for which to print help (choose from \'{}\')', '\', \''.join(commands.keys())))
 
-    # Arguments to subcommand should not be interpreted because `connect`
-    # and `run` pass them on to `emacsclient`
+    ################################
+    # Subcommand arguments
+
+    # Arguments to subcommand should not be interpreted because `connect` and
+    # `run` pass them on to `emacsclient`.  Last so we get list of all
+    # subcommands
     for c in commands.values(): literal_args(c)
 
     return p.parse_args()
 
-# Initialize global variables based on command-line flags, environment
-# variables or default values
-def initialize_globals(args):
-    for (k, v, _) in configs():
-        value = vars(args)[k.lower()]
-        if value is None:
-            value = os.getenv(f('{}{}', ENV_PREFIX, k))
-        if value is None:
-            value = v
-        globals()[k] = value
-
-    if QUERY_EMACS:
-        with err('failed to query emacs for LINK_DIR'):
-            globals()['LINK_DIR'] = elisp(
-                '(princ (expand-file-name (locate-user-emacs-file "preload")))')
-        with err('failed to query emacs for SOCKET_DIR'):
-            globals()['SOCKET_DIR'] = elisp(
-                '(progn (require \'server) (princ (expand-file-name server-socket-dir)))')
-
 def main():
     try:
+        # Parse command line
         args = parse_args()
-        initialize_globals(args)
+
+        # Initialize global variables
+        for (k, _, _) in configs(): globals()[k] = vars(args)[k.lower()]
+
+        if QUERY_EMACS:
+            with err('failed to query emacs for LINK_DIR'):
+                globals()['LINK_DIR'] = elisp(
+                    '(princ (expand-file-name (locate-user-emacs-file "preload")))')
+            with err('failed to query emacs for SOCKET_DIR'):
+                globals()['SOCKET_DIR'] = elisp(
+                    '(progn (require \'server) (princ (expand-file-name server-socket-dir)))')
+
+        # Run the selected subcommand
         args.action(args)
-    # Catch only Err exceptions.  Others are bugs, which we leave uncaught
+
+    # Catch only Err exceptions.  Other exceptions are bugs, so we leave them uncaught.
     except Err as e:
         log(e.message)
         sys.exit(1)
