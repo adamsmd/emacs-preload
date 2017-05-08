@@ -23,7 +23,7 @@ import traceback
 
 # NOTE: the sha1 in __version__ can be computed manually with:
 #   cat emacs-preload | openssl dgst -binary -sha1 | openssl base
-# NOTE: use getsourcefile instead of __file__ to avoid issues with .pyc files
+# NOTE: getsourcefile instead of __file__ to avoid .pyc files
 __version__ = '0.1 (sha1 ' + str(base64.b64encode(hashlib.sha1(pathlib.Path(inspect.getsourcefile(
     lambda: None)).read_bytes()).digest()), encoding='utf-8') + ')'
 
@@ -93,7 +93,7 @@ def configs():
         ('DRY_RUN', False, 'Print commands instead of executing them'),
         ('QUIET', False, 'Supress info messages and startup messages from emacs servers'),
         ('QUERY_EMACS', False, 'Call emacs to determine LINK_DIR and SOCKET_DIR.'
-         + ' Off by default for performance reasons.'),
+         + ' Off by default for performance.'),
         ('SIZE', ('SIZE', 5), 'Number of servers to keep running (see `start` and `stop`)'),
         ('EMACS', ('FILE', 'emacs'), 'The emacs binary to use'),
         ('EMACSCLIENT', ('FILE', 'emacsclient'), 'The emacsclient binary to use'),
@@ -116,19 +116,20 @@ class Err(Exception):
         self.message = f('[#{}] {}', lineno, message)
 
 def error(message, *args, **kwargs):
-    lineno = traceback.extract_stack(limit=2)[0].lineno
-    raise Err(lineno, f(message, *args, **kwargs))
+    raise Err(lineno(2), f(message, *args, **kwargs))
 
 def check(val, message, *args, **kwargs):
     if val: return val
-    else: error(message, *args, **kwargs)
+    else: raise Err(lineno(3), f(message, *args, **kwargs))
+
+# TODO: lineno based on source file origin
+def lineno(back): return traceback.extract_stack(limit=back)[0].lineno
 
 def because(m1, m2): return f('{}\n    because {}', m1, m2)
 
 @contextlib.contextmanager
 def noop(): yield
 
-# TODO: err option to not use children
 @contextlib.contextmanager
 def err(message, *args, **kwargs):
     lineno = traceback.extract_stack(limit=3)[0].lineno
@@ -226,8 +227,8 @@ def or_str(parts, prefix='\'', postfix='\''):
 
 # Wrap lines to terminal width but recognize '\n\n' as a paragraph separator
 def wrap_lines():
-    # TODO: not reading columns?
     # Taken from argparse.HelpFormatter.__init__
+    # NOTE: COLUMNS is usually not set
     try: width = int(os.environ['COLUMNS'])
     except (KeyError, ValueError): width = 80
     width -= 2
@@ -284,7 +285,7 @@ def emacs_cl(socket, *args, replace=False, **kwargs):
 def server_prefix(): return f('{} --daemon=', EMACS)
 
 # Prefix striped from server processes in `ps` to get the socket name
-def socket_prefix(): return f('{}{}/{}', server_prefix(), SOCKET_DIR, PREFIX)
+def server_socket_prefix(): return f('{}{}', server_prefix(), SOCKET_DIR)
 
 # Convert a link path to a socket path
 def socket_from_link(path):
@@ -360,18 +361,122 @@ def claim_socket():
 ################################
 # Subcommands
 
+# Check for errors in the current state
+def check_status(args): status(args, verbose=False)
+
 # Print server status
-def status(args):
-    def socket_status(socket):
-        check(os.path.basename(socket).startswith(PREFIX),
-            'socket does not match {}PREFIX ({})', ENV_PREFIX, PREFIX)
-        check(os.path.exists(socket),
-            'socket does not exist')
-        check(is_socket(socket),
-            'file is not a socket')
-        clients = client_count(socket)
-        print(f('    clients: {}\n', clients) +
-                '    status: all checks pass')
+def status(args, verbose=True):
+    client_prefix = f('{} --quiet --socket-name ', EMACSCLIENT)
+    client_socket_prefix = f('{}{}', client_prefix, SOCKET_DIR)
+    def print_status(string, expected_prefix, require_link=True):
+        class _Err (Exception): pass
+        def _check(test, message, *args, **kwargs):
+            nonlocal errs
+            if not test:
+                print(f('!!! error: {}', f(message, *args, **kwargs)))
+                errs += 1
+                raise _Err()
+
+        @contextlib.contextmanager
+        def mute(message=None, *args, **kwargs):
+            try: yield
+            except _Err: pass
+
+        @contextlib.contextmanager
+        def _err(*args, **kwargs):
+            try: yield
+            except Exception: _check(False, *args, **kwargs)
+
+        def _info(s, *args, **kwargs):
+            if verbose:
+                print(f(s, *args, **kwargs))
+
+        if not string.startswith(f('{}/{}', expected_prefix, PREFIX)):
+            _info('    warn: not recognized')
+            print(f('status: ignored'))
+            print()
+            return
+
+        # TODO: document code
+        errs = 0
+        name = string[len(expected_prefix + '/'):].split(' ')[0]
+
+        link = os.path.abspath(os.path.join(LINK_DIR, name))
+        socket = os.path.abspath(os.path.join(SOCKET_DIR, name))
+
+        _info('    name: {}', name)
+
+        # TODO: '--' but '+1' ?
+        with mute():
+            _check(name.startswith(PREFIX),
+                'name does not match {}PREFIX ({}): {}', ENV_PREFIX, PREFIX, name)
+
+            # Links
+            with mute():
+                # TODO: print link
+                if not os.path.lexists(link):
+                    _check(not require_link,
+                        'link does not exist: {}', link)
+                else:
+                    _info('    link: {}', link)
+                    _check(os.path.islink(link),
+                        'file not a link: {}', link)
+                    with _err('could not follow link: {}', link):
+                        target = os.path.abspath(socket_from_link(link))
+                    _check(socket == target,
+                         'socket ({}) does not match link target ({})', socket, target)
+
+            # Sockets
+            with mute():
+                _check(os.path.exists(socket),
+                    'socket does not exist: {}', socket)
+                _info('    socket: {}', socket)
+                _check(is_socket(socket),
+                    'file not a socket: {}', socket)
+
+            # Servers
+            with mute():
+                server_string = f('{}{}/{}', server_prefix(), SOCKET_DIR, name)
+                num_servers = 0
+                for (pid, proc) in servers:
+                    if proc.startswith(server_string):
+                        _info('    server: pid {}: {}', pid, proc)
+                        num_servers += 1
+                _check(num_servers == 1,
+                    '{} servers but expected 1', num_servers)
+
+            with mute():
+                with _err('failed to connect to server at {}', socket):
+                    count_str = emacs_cl(socket, '--eval', '(princ (length server-clients))',
+                        stderr=subprocess.DEVNULL)
+                with _err('server returned non-integer count {}', count_str):
+                    count_int = int(count_str)
+                _info('    reported clients: {}', count_int - 1)
+
+            # Clients
+            client_string = client_prefix + socket
+            for (pid, proc) in clients:
+                if proc.startswith(client_string):
+                    _info('    client: pid {}: {}', pid, proc)
+
+        print(f('status: {} errors', errs))
+        print()
+
+    links = []
+    with warn('failed to read link directory {}', LINK_DIR):
+        links = list(scandir(LINK_DIR))
+
+    sockets = []
+    with warn('failed to read socket directory {}', SOCKET_DIR):
+        sockets = list(scandir(SOCKET_DIR))
+
+    servers = []
+    with warn('failed to list servers'):
+        servers = list(pgrep(server_prefix()))
+
+    clients = []
+    with warn('failed to list clients'):
+        clients = list(pgrep(EMACSCLIENT))
 
     print('Configuration variables')
     print('------------------------')
@@ -379,48 +484,32 @@ def status(args):
         print(f('{}{}={}', ENV_PREFIX, name, shlex.quote(str(globals()[name]))))
     print()
 
-    # TODO: print count
-    # TODO: print correspondence
-    print(f('Links in {}', LINK_DIR))
+    print(f('Links in {} ({})', LINK_DIR, len(links)))
     print('------------------------')
-    with warn('failed to read link directory {}', LINK_DIR):
-        for link in scandir(LINK_DIR):
-            try:
-                print(f('{}:', link))
-                check(os.path.basename(link).startswith(PREFIX),
-                    'name does not match {}PREFIX ({})', ENV_PREFIX, PREFIX)
-                check(os.path.islink(link),
-                    'file is not a link')
-                socket = socket_from_link(link)
-                print(f('    target: {}', socket))
-                socket_status(socket)
-            except Err as e:
-                print('    status: ' + e.message)
+    for link in links:
+        print(f('{}:', link))
+        print_status(link, LINK_DIR)
     print()
 
-    print(f('Sockets in {}', SOCKET_DIR))
+    print(f('Sockets in {} ({})', SOCKET_DIR, len(sockets)))
     print('------------------------')
-    with warn('failed to read socket directory {}', SOCKET_DIR):
-        for socket in scandir(SOCKET_DIR):
-            try:
-                print(f('{}:', socket))
-                socket_status(socket)
-            except Err as e:
-                print('    status: ' + e.message)
+    for socket in sockets:
+        print(f('{}:', socket))
+        print_status(socket, SOCKET_DIR, require_link=False)
     print()
 
-    print('Servers')
+    print(f('Servers ({})', len(servers)))
     print('------------------------')
-    with warn('failed to list servers'):
-        for (pid, command) in pgrep(socket_prefix()):
-            print(f('{} {}', pid, command))
+    for (pid, command) in servers:
+        print(f('{}:', command))
+        print_status(command, server_socket_prefix(), require_link=False)
     print()
 
-    print('Clients')
+    print(f('Clients ({})', len(clients)))
     print('------------------------')
-    with warn('failed to list clients'):
-        for (pid, command) in pgrep(EMACSCLIENT):
-            print(f('{} {}', pid, command))
+    for (pid, command) in clients:
+        print(f('pid {}: {}', pid, command))
+        print_status(command, client_socket_prefix, require_link=False)
     print()
 
 # Start emacs servers
@@ -439,7 +528,9 @@ def start(args):
                 stderr=subprocess.DEVNULL if QUIET else None)
         with err('failed to create link from {} to socket {}', LINK_DIR, socket):
             os.symlink(socket, os.path.join(LINK_DIR, os.path.basename(socket)))
-        with err('failed to patch emacs server code'):
+        # TODO: option for whether to patch
+        # Patch the server to behave more like emacs instead of emacsclient
+        with err('failed to patch emacs server'):
             emacs_cl(socket, '--eval', '''
                 (progn
                     (require 'server)
@@ -468,8 +559,9 @@ def stop(args):
         socket = claim_socket()
         with err('failed to send (kill-emacs) to server at {}', socket):
             emacs_cl(socket, '--eval', '(kill-emacs)')
-            # TODO: Loop until complete?
-        time.sleep(STOP_DELAY) # needed so servers after the first shutdown cleanly
+        # Delay needed so servers after the first shutdown cleanly.
+        # Though I don't know why.
+        time.sleep(STOP_DELAY)
     info('done stopping servers (have {}, want {})', link_count(), size)
 
 # Connect to a server
@@ -499,6 +591,7 @@ def connect(args):
                 emacs_cl(socket, '--create-frame', *args.args,
                     replace=True, stdin=None, stdout=None, stderr=None, dry_run=True)
 # TODO: connect to a specific server
+# TODO: connect without removing link? (for debugging?)
 # TODO: shorter retry limits
             sys.exit(0)
 
@@ -548,7 +641,7 @@ def cleanup(args):
 # Kill running servers
 def kill_servers(orphans_only, args):
     with err('failed to list servers'):
-        servers = pgrep(socket_prefix())
+        servers = pgrep(f('{}/{}', server_socket_prefix(), PREFIX))
     for (pid, command) in servers:
         pid = int(pid)
         socket = command[len(server_prefix()):]
@@ -703,8 +796,8 @@ def parse_args():
             preload server, while using `start` in the background to launch new servers.'''))
     c.add_argument('args', nargs='*', help=args_help)
 
-    c = subcommand(status, help='Print preload status',
-        description=doc('''Print status of preload configuration, links, sockets, servers, and clients.'''))
+    c = subcommand(check_status, name='check', help='Check for errors',
+        description=doc('''Print preload configuration and check for errors in links, sockets, servers, or clients.'''))
 
     c = subcommand(start, help='Start preload servers',
         description=doc('''Start new preload servers until at least `size` servers are running.'''))
@@ -713,6 +806,9 @@ def parse_args():
     c = subcommand(stop, help='Stop preload servers',
         description=doc('''Stop running preload servers until at most `size` servers are running.'''))
     c.add_argument('size', nargs='?', help=size_help(f('zero')))
+
+    c = subcommand(status, help='Print preload status',
+        description=doc('''Print status of preload configuration, links, sockets, servers, and clients.'''))
 
     c = subcommand(init, help='Create the directory holding links to preload servers',
         description=doc('''Create the directory specified by LINK_DIR, which is where links to
@@ -754,6 +850,10 @@ def parse_args():
         description=doc('''Kills all preload servers.
 
             {}''', kill_doc('', '`cleanup` and `kill-orphans`')))
+
+    # TODO: `doc` wiki export
+    # TODO: readme
+    # TODO: connect-only
 
     def help(args):
         if args.subcommand is None:

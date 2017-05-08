@@ -26,3 +26,5 @@ Performance
 
 === License
 
+GPL3
+(TODO: LICENSE file and license header in emacs-preload)
