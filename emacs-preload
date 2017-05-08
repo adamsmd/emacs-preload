@@ -23,6 +23,7 @@ import traceback
 
 # NOTE: the sha1 in __version__ can be computed manually with:
 #   cat emacs-preload | openssl dgst -binary -sha1 | openssl base
+# NOTE: use getsourcefile instead of __file__ to avoid issues with .pyc files
 __version__ = '0.1 (sha1 ' + str(base64.b64encode(hashlib.sha1(pathlib.Path(inspect.getsourcefile(
     lambda: None)).read_bytes()).digest()), encoding='utf-8') + ')'
 
@@ -60,14 +61,6 @@ __version__ = '0.1 (sha1 ' + str(base64.b64encode(hashlib.sha1(pathlib.Path(insp
 #
 # Also, any combination of the above three could happen.
 
-# TODO:
-#  - emacsclient exits as soon as you close a buffer
-#     Hack server.el?
-
-# TODO: avoid readlink and use 'rm' as semaphore
-
-
-
 # Note, only ever kills user's own servers.  Allowing root to manipulate servers for all users would be complicated.
 # It's not very clean but if needed could do: for u in $users; do (su - $u; emacs-preload ...); done
 
@@ -90,30 +83,29 @@ __version__ = '0.1 (sha1 ' + str(base64.b64encode(hashlib.sha1(pathlib.Path(insp
 #   sockets
 #   servers
 
-# TODO: true top level? FOO = (False, 'doc')
 # TODO: describe environment variables
 ENV_PREFIX = 'EMACS_PRELOAD_'
 def configs():
+    # These two lines mirror code in Emacs's `server.el`
     link_dir = os.path.expanduser('~/.emacs.d/preload')
-    socket_dir = or_none(os.getenv('TMPDIR'), '/tmp') \
-        + '/emacs' + str(os.geteuid())
+    socket_dir = or_none(os.getenv('TMPDIR'), '/tmp') + '/emacs' + str(os.geteuid())
     return [
-        ('DRY_RUN', False, 'print commands instead of executing them'),
-        ('QUIET', False, 'supress info messages and startup messages from emacs servers'),
-        ('QUERY_EMACS', False, 'call emacs to determine LINK_DIR and SOCKET_DIR.'
+        ('DRY_RUN', False, 'Print commands instead of executing them'),
+        ('QUIET', False, 'Supress info messages and startup messages from emacs servers'),
+        ('QUERY_EMACS', False, 'Call emacs to determine LINK_DIR and SOCKET_DIR.'
          + ' Off by default for performance reasons.'),
-        ('SIZE', 5, 'default number of servers to keep running'),
-        ('EMACS', ('FILE', 'emacs'), 'the emacs binary to use'),
-        ('EMACSCLIENT', ('FILE', 'emacsclient'), 'the emacsclient binary to use'),
-        ('PS', ('FILE', 'ps'), 'the ps binary to use for process listing'),
-        ('START_DELAY', 0.1, 'seconds to wait between starting servers'),
-        ('STOP_DELAY', 0.1, 'seconds to wait between stopping servers'),
-        ('CONNECT_DELAY', 0.1, 'seconds between attempts to connect to a server'),
-        ('CONNECT_ATTEMPTS', 600, 'maximum number of attempts to connect to a server'),
-        ('CONNECT_TIMEOUT', 60.0, 'maximum seconds to keep attempting to connect to a server'),
-        ('PREFIX', 'preload-', 'prefix to use for server names, links, and sockets'),
-        ('LINK_DIR', ('DIR', link_dir), 'directory in which to place links'),
-        ('SOCKET_DIR', ('DIR', socket_dir), 'the directory in which emacs stores its sockets')]
+        ('SIZE', ('SIZE', 5), 'Number of servers to keep running (see `start` and `stop`)'),
+        ('EMACS', ('FILE', 'emacs'), 'The emacs binary to use'),
+        ('EMACSCLIENT', ('FILE', 'emacsclient'), 'The emacsclient binary to use'),
+        ('PS', ('FILE', 'ps'), 'The ps binary to use for process listing'),
+        ('START_DELAY', 0.1, 'Seconds to wait between starting servers'),
+        ('STOP_DELAY', 0.1, 'Seconds to wait between stopping servers'),
+        ('CONNECT_DELAY', 0.1, 'Seconds between attempts to connect to a server'),
+        ('CONNECT_ATTEMPTS', 100, 'Maximum number of attempts to connect to a server'),
+        ('CONNECT_TIMEOUT', 10.0, 'Maximum seconds to keep attempting to connect to a server'),
+        ('PREFIX', 'preload-', 'Prefix to use for server names, links, and sockets'),
+        ('LINK_DIR', ('DIR', link_dir), 'Directory in which to place links'),
+        ('SOCKET_DIR', ('DIR', socket_dir), 'The directory in which emacs stores its sockets')]
 
 ################
 # Errors
@@ -144,12 +136,19 @@ def err(message, *args, **kwargs):
     except Err as e:
         raise Err(lineno, because(f(message, *args, **kwargs), e.message))
     except Exception as e:
-        raise Err(lineno, because(f(message, *args, **kwargs), str(e)))
+        (_, _, tb) = sys.exc_info()
+        current = os.path.abspath(__file__)
+        innermost = None
+        for frame in traceback.extract_tb(tb): # innermost is last in list
+            if current == os.path.abspath(frame.filename):
+                innermost = frame.lineno
+        raise Err(lineno, because(f(message, *args, **kwargs), Err(innermost, str(e)).message))
 
 @contextlib.contextmanager
 def warn(message, *args, **kwargs):
     try: yield
     except Exception as e:
+        # TODO: to stderr
         log(because(f(message, *args, **kwargs), str(e)))
 
 ################
@@ -171,6 +170,7 @@ def cmd(*args, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=None, dr
         log('skipping due to dry run: {}', ' '.join(map(shlex.quote, args)))
         return None
     else:
+        # TODO: strange cmd errors
         with err('process failed: {}', ' '.join(map(shlex.quote, args))):
             r = subprocess.run(args,
                 stdin=stdin, stdout=stdout, stderr=stderr, universal_newlines=True)
@@ -193,6 +193,36 @@ def log(s, *args, **kwargs): print(f('emacs-preload: {}', f(s, *args, **kwargs))
 def info(s, *args, **kwargs):
     if not QUIET:
         log(s, *args, **kwargs)
+
+# Parse strings as booleans
+true_strings = ['y', 'yes', 't', 'true', 'on', '1']
+false_strings = ['n', 'no', 'f', 'false', 'off', '0']
+def parse_bool(value):
+    # These true and false values mirror `distutils.util.strtobool`
+    if isinstance(value, bool):
+        return value
+    elif value.lower() in true:
+        return True
+    elif value.lower() in false:
+        return False
+    else:
+        error('invalid truth value \'{}\'\n'
+            '        for True use one of {}\n'
+            '        for False use one of {}\n'
+            '        both are case insensitive',
+            value, or_str(true), or_str(false))
+
+# Combine `parts` according to English grammar rules
+def or_str(parts, prefix='\'', postfix='\''):
+    parts = [prefix+p+postfix for p in parts]
+    if len(parts) == 0:
+        error('TODO')
+    elif len(parts) == 1:
+        return parts[0]
+    elif len(parts) == 2:
+        return f('{} or {}', parts[0], parts[1])
+    else:
+        return ', '.join(parts[:len(parts)-1]) + ', or ' + parts[-1]
 
 # Wrap lines to terminal width but recognize '\n\n' as a paragraph separator
 def wrap_lines():
@@ -243,8 +273,12 @@ def pgrep(prefix):
 def elisp(code): return cmd(EMACS, '--batch', '--eval', code, stderr=subprocess.DEVNULL)
 
 # Run `emacsclient` with a given socket
-def emacs_cl(socket, *args, **kwargs):
-    return cmd(EMACSCLIENT, '--quiet', '--socket-name', socket, *args, **kwargs)
+def emacs_cl(socket, *args, replace=False, **kwargs):
+    args = [EMACSCLIENT, '--quiet', '--socket-name', socket] + list(args)
+    if replace:
+        os.execvp(EMACSCLIENT, args)
+    else:
+        return cmd(*args, **kwargs)
 
 # Prefix that server processes start with in `ps`
 def server_prefix(): return f('{} --daemon=', EMACS)
@@ -345,6 +379,8 @@ def status(args):
         print(f('{}{}={}', ENV_PREFIX, name, shlex.quote(str(globals()[name]))))
     print()
 
+    # TODO: print count
+    # TODO: print correspondence
     print(f('Links in {}', LINK_DIR))
     print('------------------------')
     with warn('failed to read link directory {}', LINK_DIR):
@@ -403,6 +439,23 @@ def start(args):
                 stderr=subprocess.DEVNULL if QUIET else None)
         with err('failed to create link from {} to socket {}', LINK_DIR, socket):
             os.symlink(socket, os.path.join(LINK_DIR, os.path.basename(socket)))
+        with err('failed to patch emacs server code'):
+            emacs_cl(socket, '--eval', '''
+                (progn
+                    (require 'server)
+                    ;; C-x C-c should actually kill emacs instead of just the client
+                    (defun server-save-buffers-kill-terminal (arg)
+                        (save-buffers-kill-emacs arg))
+                    ;; Don't prompt user about clients when killing buffers
+                    (remove-hook 'kill-buffer-query-functions
+                        'server-kill-buffer-query-function)
+                    ;; Don't prompt user about clients when killing emacs
+                    (remove-hook 'kill-emacs-query-functions
+                        'server-kill-emacs-query-function)
+                    ;; Don't exit when all buffers closed.
+                    ;; defun instead of remove-hook due to add-hook called on every buffer
+                    (defun server-kill-buffer () nil)
+                )''')
         time.sleep(START_DELAY)
     info('done creating servers (have {}, want {})', link_count(), size)
 
@@ -444,10 +497,9 @@ def connect(args):
                     dry_run=True, stdout=subprocess.DEVNULL)
             with err('failed to connect to server at {}', socket):
                 emacs_cl(socket, '--create-frame', *args.args,
-                    stdin=None, stdout=None, stderr=None, dry_run=True)
-            # TODO: if can avoid kill-emacs, then use exec
-            with err('failed to kill server at {}', socket):
-                emacs_cl(socket, '--eval', '(kill-emacs)', dry_run=True)
+                    replace=True, stdin=None, stdout=None, stderr=None, dry_run=True)
+# TODO: connect to a specific server
+# TODO: shorter retry limits
             sys.exit(0)
 
 # Cleanup broken servers
@@ -511,6 +563,8 @@ def run(args):
     not_dry('run')
     # TODO: minor race condition means that number of servers remaining after
     # connect may be less by one (sometimes)
+    if not hasattr(args, 'size'):
+        args.size = None
 
     # Run `start` in a background process
     with err('failed to fork background process for `start`'):
@@ -544,10 +598,8 @@ def init(args):
 
 # Parse command-line arguments
 def parse_args():
-    # TODO: document
-
     ################################
-    # Documentation strings
+    # Constants
 
     doc = wrap_lines()
 
@@ -557,9 +609,8 @@ def parse_args():
         return f('''Target number of servers to have running.  Defaults to {} if omitted.
             Relative when starts with `+` or `-`.  Absolute otherwise.''', size)
 
-    cleanup_doc = '''
-            Normally emacs-preload cleans up after itself automatically.  If
-            it doesn't, you can use this command to manually cleanup.  We are
+    cleanup_doc = '''Normally emacs-preload cleans up after itself automatically.  If it
+            doesn't, you can use this command to manually cleanup.  We are
             working to reduce how often this command is needed.'''
 
     def kill_doc(servers, commands):
@@ -579,23 +630,33 @@ def parse_args():
     #     subcommand must be passed unchanged.  Thus no
     #     `fromfile_prefix_chars` argument to `ArgumentParser`
     p = argparse.ArgumentParser(usage='%(prog)s [options] <subcommand> ...',
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        description=doc('''TODO description'''))
+        add_help=False, formatter_class=argparse.RawDescriptionHelpFormatter,
+        description=doc('''TODO description
 
-    # TODO: expanded description for full command
-    # TODO: flags must be before sub-command
-    # TODO: capitalize all documentation
-    # TODO: document environment
+            TODO: TL;DR basic usage
+
+            TODO: Environment variables (help subcommand?)
+            Booleans # True values are 'y', 'yes', 't', 'true', 'on', and '1';
+                    # false values are 'n', 'no', 'f', 'false', 'off', and '0'
+
+
+            TODO: flags must be before sub-command
+            '''))
 
     ################################
     # Options
-    c = p.add_argument('--version', action='version', version=f('emacs-preload version {}', __version__))
-    for (key, value, documentation) in configs():
-        if isinstance(value, tuple): # Extract the manually defined metavar is there is any
-            metavar = value[0]
-            value = value[1]
+    p.add_argument('-h', '--help', action='help', help='Show this help message and exit')
+    c = p.add_argument('-v', '--version', action='version',
+        version=f('emacs-preload version {}', __version__),
+        help='Show program\'s version number and exit')
+    for (key, default_value, documentation) in configs():
+        # TODO
+        if isinstance(default_value, tuple): # Extract the manually defined metavar is there is any
+            metavar = default_value[0]
+            value = default_value[1]
         else: # Otherwise, name the metavar after the type
-            metavar = type(value).__name__.upper()
+            metavar = type(default_value).__name__.upper()
+            value = default_value
 
         # Determine default value and add to documentation
         env_value = os.getenv(f('{}{}', ENV_PREFIX, key))
@@ -604,26 +665,25 @@ def parse_args():
             documentation += f(' (default {})', value)
         else:
             # Environment does override default
-            documentation += f(' (default {}', value)
-            # TODO: document bool parsing
-            with err('could not parse {}{}', ENV_PREFIX, key):
-                if isinstance(value, bool):
-                    env_value = distutils.util.strtobool(env_value)
-                value = type(value)(env_value)
-            documentation += f(' but environment overrides to {})', value)
+            documentation += f(' (default {} but environment overrides to \'{}\')', value, env_value)
+            value = env_value
 
-        p.add_argument('--'+key.lower().replace('_', '-'), default=value, help=documentation,
-            **
-            # Simple Boolean flags
-            { 'action': 'store_true' } if isinstance(value, bool) else
-            # Options with arguments
-            { 'action': 'store', 'metavar': metavar })
+        name=key.lower().replace('_', '-')
+        # Simple Boolean flags
+        if isinstance(default_value, bool):
+            p.add_argument(f('--{}', name), default=value, action='store_true', dest=key, help=documentation)
+            p.add_argument(f('--no-{}', name), default=value, action='store_false',
+                dest=key, help=f('Disable --{}', name))
+        # Options with arguments
+        else:
+            p.add_argument(f('--{}', name), metavar=metavar, action='store', dest=key,
+                default=value, help=documentation)
 
     ################################
     # Subcommands
     s = p.add_subparsers(title='subcommands', dest='subcommand')
     s.required = True # Workaround for bug in `argparse` (as of Python 3.5)
-    commands=collections.OrderedDict() # OrderedDict so printed in a consistent order
+    subcommands=collections.OrderedDict() # OrderedDict so printed in a consistent order
 
     def subcommand(func, name=None, description=None, *args, **kwargs):
         if name is None:
@@ -633,7 +693,7 @@ def parse_args():
         c = s.add_parser(name, prog=f('emacs-preload [options] {}', name), description=description,
             add_help=False, formatter_class=argparse.RawDescriptionHelpFormatter, *args, **kwargs)
         c.set_defaults(action=func)
-        commands[name] = c
+        subcommands[name] = c
         return c
 
     c = subcommand(run,
@@ -684,29 +744,29 @@ def parse_args():
             client and are not in LINK_DIR.''', cleanup_doc))
 
 
-    c = subcommand(functools.partial(kill_servers, True), name='kill-orphans', help='kill orphaned servers',
+    c = subcommand(functools.partial(kill_servers, True), name='kill-orphans', help='Kill orphaned servers',
         description=doc('''Kills all orphan preload servers, which are those for which there are no sockets in
             SOCKET_DIR.
 
             {}''', kill_doc('orphan', '`cleanup`')))
 
-    c = subcommand(functools.partial(kill_servers, False), name='kill-all', help='kill all servers',
+    c = subcommand(functools.partial(kill_servers, False), name='kill-all', help='Kill all servers',
         description=doc('''Kills all preload servers.
 
             {}''', kill_doc('', '`cleanup` and `kill-orphans`')))
 
     def help(args):
         if args.subcommand is None:
-            p.print_help()
-        elif args.subcommand in commands:
-            commands[args.subcommand].print_help()
+            subcommands['help'].print_help()
+        elif args.subcommand in subcommands:
+            subcommands[args.subcommand].print_help()
         else:
             error('no subcommand {}. ', args.subcommand)
 
     # Last so we can get a list of all subcommands
     c = subcommand(help, help='Prints help for subcommands', description=doc('''Prints help for the given subcommand'''))
-    c.add_argument('subcommand', metavar='subcommand', nargs='?', choices=commands.keys(), action='store',
-        help=f('The subcommand for which to print help (choose from \'{}\')', '\', \''.join(commands.keys())))
+    c.add_argument('subcommand', metavar='subcommand', nargs='?', choices=subcommands.keys(), action='store',
+        help=f('The subcommand for which to print help (choose from {})', or_str(subcommands.keys())))
 
     ################################
     # Subcommand arguments
@@ -714,7 +774,7 @@ def parse_args():
     # Arguments to subcommand should not be interpreted because `connect` and
     # `run` pass them on to `emacsclient`.  Last so we get list of all
     # subcommands
-    for c in commands.values(): literal_args(c)
+    for c in subcommands.values(): literal_args(c)
 
     return p.parse_args()
 
@@ -724,7 +784,14 @@ def main():
         args = parse_args()
 
         # Initialize global variables
-        for (k, _, _) in configs(): globals()[k] = vars(args)[k.lower()]
+        # TODO: parse
+        for (key, default_value, _) in configs():
+            if isinstance(default_value, tuple):
+                default_value = default_value[1]
+            value = vars(args)[key]
+            # TODO: document bool parsing
+            with err('could not parse {}: {}', key, value):
+                globals()[key] = parse_bool(value) if isinstance(default_value, bool) else type(default_value)(value)
 
         if QUERY_EMACS:
             with err('failed to query emacs for LINK_DIR'):
@@ -740,13 +807,12 @@ def main():
     # Catch only Err exceptions.  Other exceptions are bugs, so we leave them uncaught.
     except Err as e:
         log(e.message)
+        # TODO: with stderr
         sys.exit(1)
     sys.exit(0)
 
 if __name__ == '__main__':
     main()
-
-# TODO: README
 
 ################
 # Development notes
@@ -763,7 +829,11 @@ if __name__ == '__main__':
 #  - Startup should be below human perception threshold
 #  - Prefer library methods over spawning processes
 # Safety:
+# Don't capitalize errors (they must be compatable with `because`
 #  - TODO
+# Capitalize all documentation
+# Indent four columns (even for wrapped statements)
+# Error message numbers are line numbers
 
 # - Linters:
 #   + pylint
