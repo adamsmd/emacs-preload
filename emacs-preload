@@ -118,34 +118,40 @@ class Err(Exception):
         self.message = f('[#{}] {}', lineno, message)
 
 def error(message, *args, **kwargs):
-    raise Err(lineno(2), f(message, *args, **kwargs))
+    raise Err(lineno(3), f(message, *args, **kwargs))
 
 def check(val, message, *args, **kwargs):
     if val: return val
     else: raise Err(lineno(3), f(message, *args, **kwargs))
 
-# TODO: lineno based on source file origin
-def lineno(back): return traceback.extract_stack(limit=back)[0].lineno
+def lineno(back, stack=None):
+    current = os.path.abspath(__file__)
+    if stack is None:
+        stack = traceback.extract_stack()
+    frames = [f for f in stack if current == os.path.abspath(f.filename)]
+    return frames[-back].lineno # innermost is last in list
 
 def because(m1, m2): return f('{}\n    because {}', m1, m2)
 
 @contextlib.contextmanager
 def noop(): yield
 
+class MuteErr (Exception): pass
+@contextlib.contextmanager
+def mute():
+    try: yield
+    except MuteErr: pass
+
 @contextlib.contextmanager
 def err(message, *args, **kwargs):
-    lineno = traceback.extract_stack(limit=3)[0].lineno
+    err_lineno = lineno(3)
     try: yield
     except Err as e:
-        raise Err(lineno, because(f(message, *args, **kwargs), e.message))
+        raise Err(err_lineno, because(f(message, *args, **kwargs), e.message))
     except Exception as e:
         (_, _, tb) = sys.exc_info()
-        current = os.path.abspath(__file__)
-        innermost = None
-        for frame in traceback.extract_tb(tb): # innermost is last in list
-            if current == os.path.abspath(frame.filename):
-                innermost = frame.lineno
-        raise Err(lineno, because(f(message, *args, **kwargs), Err(innermost, str(e)).message))
+        exc_lineno = lineno(1, stack=traceback.extract_tb(tb))
+        raise Err(err_lineno, because(f(message, *args, **kwargs), Err(exc_lineno, str(e)).message))
 
 @contextlib.contextmanager
 def warn(message, *args, **kwargs):
@@ -273,7 +279,8 @@ def pgrep(prefix):
 # Evaluate an elisp expression
 def elisp(code): return cmd(EMACS, '--batch', '--eval', code, stderr=subprocess.DEVNULL)
 
-# Run `emacsclient` with a given socket
+# Run `emacsclient` with a given socket.  Note that accepts both absolute and
+# relative paths because `emacsclient` already supports that.
 def emacs_cl(socket, *args, replace=False, **kwargs):
     args = [EMACSCLIENT, '--quiet', '--socket-name', socket] + list(args)
     if replace:
@@ -286,6 +293,12 @@ def server_prefix(): return f('{} --daemon=', EMACS)
 
 # Prefix striped from server processes in `ps` to get the socket name
 def server_socket_prefix(): return f('{}{}', server_prefix(), SOCKET_DIR)
+
+# Prefix that client proceses start with in `ps`
+def client_prefix(): return f('{} --quiet --socket-name ', EMACSCLIENT)
+
+# Prefix striped from client processes in `ps` to get the socket name
+def client_socket_prefix(): return f('{}{}', client_prefix, SOCKET_DIR)
 
 # Convert a link path to a socket path
 def socket_from_link(path):
@@ -366,38 +379,34 @@ def check_status(args): status(args, verbose=False)
 
 # Print server status
 def status(args, verbose=True):
-    client_prefix = f('{} --quiet --socket-name ', EMACSCLIENT)
-    client_socket_prefix = f('{}{}', client_prefix, SOCKET_DIR)
+    # Print status of `strings` which is expected to be `expected_prefix` followed by the name
     def print_status(string, expected_prefix, require_link=True):
-        class _Err (Exception): pass
+        # If something goes wrong, we need to continue checking the status of
+        # other things, so we have local versions of `check` and `err` for that.
         def _check(test, message, *args, **kwargs):
             nonlocal errs
             if not test:
                 print(f('!!! error: {}', f(message, *args, **kwargs)))
                 errs += 1
-                raise _Err()
-
-        @contextlib.contextmanager
-        def mute(message=None, *args, **kwargs):
-            try: yield
-            except _Err: pass
+                raise MuteErr()
 
         @contextlib.contextmanager
         def _err(*args, **kwargs):
             try: yield
             except Exception: _check(False, *args, **kwargs)
 
+        # Local version of _info that pays attention to `verbose`
         def _info(s, *args, **kwargs):
             if verbose:
                 print(f(s, *args, **kwargs))
 
         if not string.startswith(f('{}/{}', expected_prefix, PREFIX)):
+            # Right type of thing, but not from `emacs-preload`
             _info('    warn: not recognized')
             print(f('status: ignored'))
             print()
             return
 
-        # TODO: document code
         errs = 0
         name = string[len(expected_prefix + '/'):].split(' ')[0]
 
@@ -452,7 +461,7 @@ def status(args, verbose=True):
                 _info('    reported clients: {}', count_int - 1)
 
             # Clients
-            client_string = client_prefix + socket
+            client_string = client_prefix() + socket
             for (pid, proc) in clients:
                 if proc.startswith(client_string):
                     _info('    client: pid {}: {}', pid, proc)
@@ -507,7 +516,7 @@ def status(args, verbose=True):
     print('------------------------')
     for (pid, command) in clients:
         print(f('pid {}: {}', pid, command))
-        print_status(command, client_socket_prefix, require_link=False)
+        print_status(command, client_socket_prefix(), require_link=False)
     print()
 
 # Start emacs servers
@@ -527,7 +536,7 @@ def start(args):
         with err('failed to create link from {} to socket {}', LINK_DIR, socket):
             os.symlink(socket, os.path.join(LINK_DIR, os.path.basename(socket)))
         # Patch the server to behave more like emacs instead of emacsclient
-        if args.patch_server:
+        if PATCH_SERVER:
             with err('failed to patch emacs server'):
                 emacs_cl(socket, '--eval', '''
                     (progn
@@ -570,9 +579,9 @@ def connect(args):
         attempts += 1
         elapsed_time = time.time() - start_time
         if attempts > CONNECT_ATTEMPTS:
-            error('failed to connect after {} attempts', attempts)
+            error('failed to connect after at least {} attempts', CONNECT_ATTEMPTS)
         if elapsed_time > CONNECT_TIMEOUT:
-            error('failed to connect after {} seconds', elapsed_time)
+            error('failed to connect after at least {} seconds', CONNECT_TIMEOUT)
         try:
             socket = claim_socket()
         except Err as e:
@@ -580,17 +589,15 @@ def connect(args):
         else:
             with err('failed to set PWD on server at {}', socket):
                 # TODO: anything other than PWD we need to set?
-                # TODO: escape PWD
-                # TODO: Note that `emacsclient --socket-name` accepts absolute paths
-                # TODO: The default creates a frame, but this can (?) be overrided by passing `-nw`
-                emacs_cl(socket, '--eval', f('(setenv "PWD" "{}")', os.getcwd()),
-                    dry_run=True, stdout=subprocess.DEVNULL)
+                cwd = ''.join([f('\\x{:02X}', ord(c)) for c in os.getcwd()])
+                emacs_cl(socket, '--eval', f('(setenv "PWD" "{}")', cwd),
+                    dry_run=True, stdin=None, stdout=subprocess.DEVNULL)
             with err('failed to connect to server at {}', socket):
                 emacs_cl(socket, '--create-frame', *args.args,
                     replace=True, stdin=None, stdout=None, stderr=None, dry_run=True)
-# TODO: connect to a specific server
-# TODO: connect without removing link? (for debugging?)
-            sys.exit(0)
+            # `emacs_cl(..., replace=True, ...) does a Unix `exec`, so it is
+            # an error if we get to this line.
+            sys.exit(1)
 
 # Cleanup broken servers
 def cleanup(args):
@@ -728,6 +735,11 @@ def parse_args():
 
 
             TODO: flags must be before sub-command
+
+                # TODO: The default creates a frame, but this can (?) be overrided by passing `-nw`
+
+            # TODO: document bool parsing
+
             '''))
 
     ################################
@@ -851,9 +863,6 @@ def parse_args():
             {}''', kill_doc('', '`cleanup` and `kill-orphans`')))
 
     # TODO: `doc` wiki export
-    # TODO: readme
-    # TODO: connect-only
-    # TODO: document: options must be first
 
     def help(args):
         if args.subcommand is None:
@@ -883,12 +892,10 @@ def main():
         args = parse_args()
 
         # Initialize global variables
-        # TODO: parse
         for (key, default_value, _) in configs():
             if isinstance(default_value, tuple):
                 default_value = default_value[1]
             value = vars(args)[key]
-            # TODO: document bool parsing
             with err('could not parse {}: {}', key, value):
                 globals()[key] = parse_bool(value) if isinstance(default_value, bool) else type(default_value)(value)
 
