@@ -1,5 +1,21 @@
 #!/usr/bin/env python3
 
+# emacs-preload: Fast Emacs Startup by Preloading Emacs Servers
+# Copyright (C) 2017  Michael D. Adams <https://michaeldadams.org/>
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 import argparse
 import base64
 import collections
@@ -27,63 +43,7 @@ import traceback
 __version__ = '0.1 (sha-1: ' + str(base64.b16encode(hashlib.sha1(pathlib.Path(inspect.getsourcefile(
     lambda: None)).read_bytes()).digest()), encoding='utf-8') + ')'
 
-# emacs-preload
-#
-# This file is `emacs-preload`, which manages a pool
-# of emacs daemons for fast emacs
-
-# emacs-preload
-#
-# maintains a pool of emacs deamons for fast emacsclient startup
-#
-# The most common usage is simply:
-#   emacs-preload connect ARGS ...
-# where ARGS are arguments to be passed to `emacsclient` (e.g., files to edit).
-
-# Data structures:
-#  ~/.emacs.d/preload/preload-XXXX
-#  /tmp/emacs1000/preload-XXXX
-#  emacs server
-
-# Technical details:
-# Emacs deamons put a socket file in `/tmp/emacs$UID/$NAME`
-# This script puts in ~/.emacs.d/preload/ symlinks to the socket fild of the servers it starts.
-# When this script connects to a server, it removes that symlink
-# Thus all the symlinks in ~/.emacs.d/preload/ represent unused servers that we can connect to.
-#
-# When the number of symlinks in ~/.emacs.d/preload/ is low,
-# this script launches more servers in the background.
-#
-# There are a few ways things can break:
-#  (1) The server could shut down
-#  (2) The socket file could be removed
-#  (3) The symlinks in ~/.emacs.d/preload/ could be removed
-#
-# Also, any combination of the above three could happen.
-
-# Note, only ever kills user's own servers.  Allowing root to manipulate servers for all users would be complicated.
-# It's not very clean but if needed could do: for u in $users; do (su - $u; emacs-preload ...); done
-
-#: ${EMACS_PRELOAD_SIZE:=3} # How many servers to keep preloaded
-#: ${EMACS_PRELOAD_EMACS:=emacs} # `emacs` command
-#: ${EMACS_PRELOAD_EMACSCLIENT:=emacsclient} # `emacsclient` command
-#: ${EMACS_PRELOAD_LAUNCH_DELAY:=5} # How long to wait between starting servers
-#: ${EMACS_PRELOAD_CONNECT_DELAY:=0.1} # How long to wait between connection attempts
-#: ${EMACS_PRELOAD_CONNECT_ATTEMPTS:=600} # How many times to try connecting
-#: ${EMACS_PRELOAD_PREFIX:="preload-"} # Unique prefix used for server names
-#
-## About 150ms delay if not already have these
-##EMACS_PRELOAD_LINK_DIR=$HOME/.emacs.d/preload
-##EMACS_PRELOAD_SOCKET_DIR=/tmp/emacs$UID
-##    "~/.emacs.d/")
-##       (format "%s/emacs%d" (or (getenv "TMPDIR") "/tmp") (user-uid)))
-
-# TODO: Three parts
-#   links
-#   sockets
-#   servers
-
-# TODO: describe environment variables
+# Configuration variables.  Set by command line flags or environment variables.
 ENV_PREFIX = 'EMACS_PRELOAD_'
 def configs():
     # These two lines mirror code in Emacs's `server.el`
@@ -94,7 +54,7 @@ def configs():
         ('QUIET', False, 'Supress info messages and startup messages from emacs servers'),
         ('QUERY_EMACS', False, 'Call emacs to determine LINK_DIR and SOCKET_DIR.'
          + ' Off by default for performance.'),
-        ('SIZE', ('SIZE', 5), 'Number of servers to keep running (see `start` and `stop`)'),
+        ('SIZE', ('SIZE', 7), 'Number of servers to keep running (see `start` and `stop`)'),
         ('EMACS', ('FILE', 'emacs'), 'The emacs binary to use'),
         ('EMACSCLIENT', ('FILE', 'emacsclient'), 'The emacsclient binary to use'),
         ('PS', ('FILE', 'ps'), 'The ps binary to use for process listing'),
@@ -155,9 +115,14 @@ def err(message, *args, **kwargs):
 
 @contextlib.contextmanager
 def warn(message, *args, **kwargs):
+    err_lineno = lineno(3)
     try: yield
+    except Err as e:
+        log(Err(err_lineno, because(f(message, *args, **kwargs), e.message)).message, file=sys.stderr)
     except Exception as e:
-        log(because(f(message, *args, **kwargs), str(e)), file=sys.stderr)
+        (_, _, tb) = sys.exc_info()
+        exc_lineno = lineno(1, stack=traceback.extract_tb(tb))
+        log(Err(err_lineno, because(f(message, *args, **kwargs), Err(exc_lineno, str(e)).message)).message, file=sys.stderr)
 
 ################
 # Execution control
@@ -469,6 +434,29 @@ def status(args, verbose=True):
         print(f('status: {} errors', errs))
         print()
 
+    print('Version')
+    print('------------------------')
+    print('emacs-preload:')
+    print(__version__)
+    print()
+    print('python:')
+    print(sys.version)
+    print()
+    print('emacs:')
+    try: print(cmd(EMACS, '--version'))
+    except Err as e: print(e.message)
+    print()
+    print('emacsclient:')
+    try: print(cmd(EMACSCLIENT, '--version'))
+    except Err as e: print(e.message)
+    print()
+
+    print('Configuration variables')
+    print('------------------------')
+    for (name, _, _) in configs():
+        print(f('{}{}={}', ENV_PREFIX, name, shlex.quote(str(globals()[name]))))
+    print()
+
     links = []
     with warn('failed to read link directory {}', LINK_DIR):
         links = list(scandir(LINK_DIR))
@@ -484,12 +472,6 @@ def status(args, verbose=True):
     clients = []
     with warn('failed to list clients'):
         clients = list(pgrep(EMACSCLIENT))
-
-    print('Configuration variables')
-    print('------------------------')
-    for (name, _, _) in configs():
-        print(f('{}{}={}', ENV_PREFIX, name, shlex.quote(str(globals()[name]))))
-    print()
 
     print(f('Links in {} ({})', LINK_DIR, len(links)))
     print('------------------------')
@@ -509,6 +491,7 @@ def status(args, verbose=True):
     print('------------------------')
     for (pid, command) in servers:
         print(f('{}:', command))
+        print(f('    pid: {}', pid))
         print_status(command, server_socket_prefix(), require_link=False)
     print()
 
@@ -587,8 +570,9 @@ def connect(args):
         except Err as e:
             time.sleep(CONNECT_DELAY)
         else:
+            # TODO: anything other than PWD we need to set?
             with err('failed to set PWD on server at {}', socket):
-                # TODO: anything other than PWD we need to set?
+                # String escape PWD in case it contains special characters
                 cwd = ''.join([f('\\x{:02X}', ord(c)) for c in os.getcwd()])
                 emacs_cl(socket, '--eval', f('(setenv "PWD" "{}")', cwd),
                     dry_run=True, stdin=None, stdout=subprocess.DEVNULL)
@@ -640,6 +624,9 @@ def cleanup(args):
                         ' due to having no link and no clients', socket)
                     with err('failed to (kill-emacs) on server at {}', socket):
                         emacs_cl(socket, '--eval', '(kill-emacs)', dry_run=True)
+                    # Delay needed so servers after the first shutdown cleanly.
+                    # Though I don't know why.
+                    time.sleep(STOP_DELAY)
 
 # Kill running servers
 def kill_servers(orphans_only, args):
@@ -654,6 +641,12 @@ def kill_servers(orphans_only, args):
                 with err('failed to send {} to emacs server (pid {}, socket {})', sig.name, pid, socket):
                     dry(os.kill, pid, sig)
         time.sleep(KILL_DELAY)
+    with err('failed to list servers'):
+        servers = list(pgrep(f('{}/{}', server_socket_prefix(), PREFIX)))
+        print(f('servers still running: {}', len(servers)))
+        for (pid, command) in servers:
+            print(f('PID {}: {}', pid, command))
+
 
 # Combines `connect` with `start` in the background
 def run(args):
@@ -717,6 +710,12 @@ def parse_args():
             shutdown a server.''',
             cleanup_doc, servers, commands)
 
+    def help_description():
+        string = ''
+        string += 'Prints help for the given subcommand or topic\n'
+        string += '\n'
+        string += 'subcommands:\n'
+
     ################################
     # Argument parser
 
@@ -739,6 +738,39 @@ def parse_args():
                 # TODO: The default creates a frame, but this can (?) be overrided by passing `-nw`
 
             # TODO: document bool parsing
+
+# The most common usage is simply:
+#   emacs-preload connect ARGS ...
+# where ARGS are arguments to be passed to `emacsclient` (e.g., files to edit).
+
+# Data structures:
+#  ~/.emacs.d/preload/preload-XXXX
+#  /tmp/emacs1000/preload-XXXX
+#  emacs server
+
+# Technical details:
+# Emacs deamons put a socket file in `/tmp/emacs$UID/$NAME`
+# This script puts in ~/.emacs.d/preload/ symlinks to the socket fild of the servers it starts.
+# When this script connects to a server, it removes that symlink
+# Thus all the symlinks in ~/.emacs.d/preload/ represent unused servers that we can connect to.
+#
+# When the number of symlinks in ~/.emacs.d/preload/ is low,
+# this script launches more servers in the background.
+
+#
+# There are a few ways things can break:
+#  (1) The server could shut down
+#  (2) The socket file could be removed
+#  (3) The symlinks in ~/.emacs.d/preload/ could be removed
+#
+# Also, any combination of the above three could happen.
+
+## About 150ms delay if not already have these
+##EMACS_PRELOAD_LINK_DIR=$HOME/.emacs.d/preload
+##EMACS_PRELOAD_SOCKET_DIR=/tmp/emacs$UID
+##    "~/.emacs.d/")
+##       (format "%s/emacs%d" (or (getenv "TMPDIR") "/tmp") (user-uid)))
+
 
             '''))
 
@@ -784,6 +816,7 @@ def parse_args():
     s = p.add_subparsers(title='subcommands', dest='subcommand')
     s.required = True # Workaround for bug in `argparse` (as of Python 3.5)
     subcommands=collections.OrderedDict() # OrderedDict so printed in a consistent order
+    topics=collections.OrderedDict() # OrderedDict so printed in a consistent order
 
     def subcommand(func, name=None, description=None, *args, **kwargs):
         if name is None:
@@ -812,7 +845,7 @@ def parse_args():
 
     c = subcommand(start, help='Start preload servers',
         description=doc('''Start new preload servers until at least `size` servers are running.'''))
-    c.add_argument('size', nargs='?', help=size_help(f('the value of SIZE')))
+    c.add_argument('size', nargs='?', help=size_help(f('`SIZE`')))
 
     c = subcommand(stop, help='Stop preload servers',
         description=doc('''Stop running preload servers until at most `size` servers are running.'''))
@@ -822,15 +855,16 @@ def parse_args():
         description=doc('''Print status of preload configuration, links, sockets, servers, and clients.'''))
 
     c = subcommand(init, help='Create the directory holding links to preload servers',
-        description=doc('''Create the directory specified by LINK_DIR, which is where links to
+        description=doc('''Create the directory specified by `LINK_DIR`, which is where links to
             preload servers are kept.
 
             Rarely needs to be called manually as it is automatically called
-            by the subcommands that need the LINK_DIR directory.'''))
+            by the subcommands that need the `LINK_DIR` directory.'''))
 
     c = subcommand(connect, help='Connect to a preload server',
         description=doc('''Connect to an available preload server.  Picks a waiting server from those
-            in LINK_DIR, removes it from LINK_DIR, and connects to it with `emacsclient`.'''))
+            in `LINK_DIR`, removes it from `LINK_DIR`, and connects to it with
+            `emacsclient`.'''))
     c.add_argument('args', nargs='*', help=args_help)
 
     c = subcommand(cleanup, help='Cleanup broken servers',
@@ -845,15 +879,15 @@ def parse_args():
             may need to use kill-orphans or kill-all subcommands to kill such
             servers.
 
-            Removes links in LINK_DIR for unreachable servers and servers that
-            already have clients.  Removes sockets in SOCKET_DIR that do not
-            connect to a server.  Sends `(kill-emacs)` to servers that have no
-            client and are not in LINK_DIR.''', cleanup_doc))
+            Removes links in `LINK_DIR` for unreachable servers and servers
+            that already have clients.  Removes sockets in `SOCKET_DIR` that
+            do not connect to a server.  Sends `(kill-emacs)` to servers that
+            have no client and are not in `LINK_DIR`.''', cleanup_doc))
 
 
     c = subcommand(functools.partial(kill_servers, True), name='kill-orphans', help='Kill orphaned servers',
-        description=doc('''Kills all orphan preload servers, which are those for which there are no sockets in
-            SOCKET_DIR.
+        description=doc('''Kills all orphan preload servers, which are those for which there are no
+            sockets in `SOCKET_DIR`.
 
             {}''', kill_doc('orphan', '`cleanup`')))
 
@@ -862,20 +896,157 @@ def parse_args():
 
             {}''', kill_doc('', '`cleanup` and `kill-orphans`')))
 
-    # TODO: `doc` wiki export
+    # TODO: document code
+    def export_wiki(args):
+        dst = args.dir
+        check(os.path.isdir(dst),
+            'destination not a directory: {}', dst)
+
+        filename = os.path.join(dst, 'Home.md')
+        with err('error while writing to {}', filename), \
+             open(filename, 'w') as file, \
+             contextlib.redirect_stdout(file):
+            print('# Home')
+            print()
+            print('[[Usage]]')
+            print('[[Subcommands]]')
+            print('[[Options]]')
+#Running `emacs-preload check`
+#prints the current configuration under "Configuration variables".  You can 
+            print('[[Technical details]]')
+            print('[[Development]]')
+            print()
+
+        filename = os.path.join(dst, 'README.md')
+        with err('error while writing to {}', filename), \
+             open(filename, 'w') as file, \
+             contextlib.redirect_stdout(file):
+            print('# README')
+
+        filename = os.path.join(dst, 'Usage.md')
+        with err('error while writing to {}', filename), \
+             open(filename, 'w') as file, \
+             contextlib.redirect_stdout(file):
+            print('# Usage')
+            print()
+            print('Usage: `emacs-preload [options] <subcommand> ...`')
+            print()
+            print(p.description)
+            print()
+            print('TODO: optional arguments')
+            print()
+            print('TODO: subcommands')
+
+        filename = os.path.join(dst, 'Subcommands.md')
+        with err('error while writing to {}', filename), \
+             open(filename, 'w') as file, \
+             contextlib.redirect_stdout(file):
+            print('# Subcommands')
+            # Print help=
+            print()
+            for key in subcommands:
+                value = subcommands[key]
+                print(f('## {}', key))
+                print()
+                args = ''
+                for action in value._actions:
+                    form = \
+                        ' {}' if action.nargs is None else \
+                        ' [{}]' if action.nargs == '?' else \
+                        ' [{0} [{0} ...]' if action.nargs == '*' else \
+                        None
+                    args += f(form, action.dest)
+                print(f('Usage: `{}{}`', value.prog, args))
+                print()
+                print(f('{}', value.description))
+                if value._actions != []:
+                    print()
+                    print(f('Arguments | '))
+                    print(f('----------|-'))
+                    for action in value._actions: # TODO: public api?
+                        print(f('`{}` | {}', action.dest, re.sub('\s+', ' ', action.help)))
+
+        filename = os.path.join(dst, 'Topics.md')
+        with err('error while writing to {}', filename), \
+             open(filename, 'w') as file, \
+             contextlib.redirect_stdout(file): \
+            print('# Topics')
+
+    # TODO: help readme
+    # TODO: in main usage: for a longer overview do help readme
+
+    c = subcommand(export_wiki, help='Generate wiki documentation files',
+        description=doc('''Create BitBucket formatted wiki files for all the documentation'''))
+    c.add_argument('dir', help='The directory into which to put the documentation files')
+
+    # TODO: automate release and inclusion of SHA-1 hash
+
+    topics['Options'] = doc('''TODO''')
+    topics['Development'] = doc('''
+
+Development notes
+
+Self contained:
+ - No installation needed
+ - No third party libraries needed
+Cross platform:
+ - Linux
+ - MacOS
+ - Maybe Windows (if someone wants to port it)
+   - Could need `ps`
+Performance:
+ - Startup should be below human perception threshold
+ - Prefer library methods over spawning processes
+Safety:
+Don't capitalize errors (they must be compatable with `because`)
+Errors thrown from a given <line> include [#<line>] at the start
+
+Capitalize all documentation
+Indent four columns (even for wrapped statements)
+Error message numbers are line numbers
+
+Line length limit: 100.
+
+- Linters:
+  + pylint
+  + pycodestyle
+  + pydocstyle
+  + flake8
+        ''')
+    topics['Implementation'] = doc('''
+## Technical details
+
+Data structures:
+ ~/.emacs.d/preload/preload-XXXX
+ /tmp/emacs1000/preload-XXXX
+ emacs server
+
+Technical details:
+Emacs deamons put a socket file in `/tmp/emacs$UID/$NAME`
+This script puts in ~/.emacs.d/preload/ symlinks to the socket fild of the servers it starts.
+When this script connects to a server, it removes that symlink
+Thus all the symlinks in ~/.emacs.d/preload/ represent unused servers that we can connect to.
+
+When the number of symlinks in ~/.emacs.d/preload/ is low,
+this script launches more servers in the background.
+''')
 
     def help(args):
+        # as subcommand
         if args.subcommand is None:
             subcommands['help'].print_help()
         elif args.subcommand in subcommands:
             subcommands[args.subcommand].print_help()
+        # TODO: topics
         else:
             error('no subcommand {}. ', args.subcommand)
 
-    # Last so we can get a list of all subcommands
-    c = subcommand(help, help='Prints help for subcommands', description=doc('''Prints help for the given subcommand'''))
+#    help_description=
+
+    # Last so we can get a list of all subcommands and topics
+    c = subcommand(help, help='Prints help for subcommands', description=help_description())
     c.add_argument('subcommand', metavar='subcommand', nargs='?', choices=subcommands.keys(), action='store',
-        help=f('The subcommand for which to print help (choose from {})', or_str(subcommands.keys())))
+        help=f('The subcommand for which to print help (choose from {})', or_str(subcommands.keys(), prefix='`', postfix='`')))
 
     ################################
     # Subcommand arguments
@@ -886,6 +1057,8 @@ def parse_args():
 
     return p.parse_args()
 
+################################
+# Main program
 def main():
     try:
         # Parse command line
@@ -918,31 +1091,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-################
-# Development notes
-
-# Self contained:
-#  - No installation needed
-#  - No third party libraries needed
-# Cross platform:
-#  - Linux
-#  - MacOS
-#  - Maybe Windows (if someone wants to port it)
-#    - Could need `ps`
-# Performance:
-#  - Startup should be below human perception threshold
-#  - Prefer library methods over spawning processes
-# Safety:
-# Don't capitalize errors (they must be compatable with `because`)
-# Errors thrown from a given <line> include [#<line>] at the start
-
-# Capitalize all documentation
-# Indent four columns (even for wrapped statements)
-# Error message numbers are line numbers
-
-# - Linters:
-#   + pylint
-#   + pycodestyle
-#   + pydocstyle
-#   + flake8
