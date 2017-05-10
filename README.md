@@ -74,15 +74,9 @@ help options` or the [[Options]] page on the wiki.
 
 ## Documentation
 
-TODO:
-
-Most documentation is in-app.
-Start with emacs-preload --help
-
-An online copy of the documentation is available at
+Documentation is available from `emacs-preload help`.  An online copy of this
+documentation is available at
 <https://bitbucket.org/adamsmd/emacs-preload/wiki>.
-
-Readme is also generated from in-program documentation
 
 ## License
 
@@ -122,22 +116,18 @@ guidelines.
 
 ### Why not `emacsclient`?
 
-TODO
+Internally this tool is built on `emacsclient`.  The difference is that the
+usual `emacsclient` setup has multiple clients all connecting to the same
+Emacs server, and thus buffers are shared between all of them.
+
+In contract, `emacs-preload` manages a pool of servers, and each client
+connects to a different server.  Thus buffers are not shared between them.
 
 ### Why isn't this project updated frequently?
 
-TODO
-
-I built the tool to satisfy my own needs.
-Barring bugs or interface changes in the dependencies, 
-Because it is already perfect.  Just kidding.  
-
-My day job
-THis is primarily a tool for my own purposes
-That said, if an enterprising developer wants to take on maintenance,
-I would be happy to allow that.
-
-I care about ...
+Unfortunately, my time for side projects like this is very limited.  That
+said, if an enterprising developer wants to take on maintenance or further
+development, I would be happy to accept pull requests.
 
 ### How fast is the startup?
 
