@@ -774,7 +774,7 @@ def parse_args():
             intercepted.
 
             For more details about this program visit the project home page at
-            <https://bitbucket.org/adamsmd/emacs-preload>
+            <https://bitbucket.org/adamsmd/emacs-preload>.
 
             ## Configuration
 
@@ -957,8 +957,9 @@ def parse_args():
                             None
                         args += f(form, action.dest)
                 print(f('Usage: `{}{}`', value['subcommand'].prog, args))
-                print()
-                print(f('{}', value['subcommand'].description))
+                if value['subcommand'].description is not None:
+                    print()
+                    print(f('{}', value['subcommand'].description))
                 if value['subcommand']._actions != []:
                     print()
                     print(f('Arguments | '))

@@ -42,7 +42,7 @@ subcommand unchanged.  This is so that arguments to commands like `emacs-
 preload run` are not intercepted.
 
 For more details about this program visit the project home page at
-<https://bitbucket.org/adamsmd/emacs-preload>
+<https://bitbucket.org/adamsmd/emacs-preload>.
 
 ## Configuration
 
@@ -230,8 +230,6 @@ Arguments |
 ## help
 
 Usage: `emacs-preload [options] help`
-
-None
 
 Arguments | 
 ----------|-
