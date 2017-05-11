@@ -339,6 +339,9 @@ def claim_socket():
                 error(because(f('failed to remove link {}', link), str(e)))
             else:
                 error(because(f('missing link {}', link), str(e)))
+        count = client_count(socket)
+        check(count == 0,
+            'socket already has clients ({})', count)
         return socket
 
 ################################
