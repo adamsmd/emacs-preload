@@ -32,6 +32,9 @@ emacsclient --quiet --socket-name <name> --create-frame <args ...>
 
 ## Download
 
+This project is hosted at
+<https://bitbucket.org/adamsmd/emacs-preload>.
+
 You can download the latest release from
 <https://bitbucket.org/adamsmd/emacs-preload/addon/com.releasebucket/releases>.
 
@@ -44,14 +47,15 @@ Or you can clone the repository with either of the following.
 ## Installation
 
 This program is a self contained python script.  Everything in the
-`emacs-preload` file.  Just copy it to wherever you want it installed.
+`emacs-preload` file.  Just copy it to wherever you want it installed and mark
+it as executable (e.g., `chmod a+x emacs-preload`).
 
 ### Dependencies
 
 Dependencies have intentionally been kept minimal.  They are:
 
 - Python 3.5 or higher (`python3`)
-- Emacs (`emacss`)
+- Emacs (`emacs`)
 - Emacs client (`emacsclient`)
 - `ps` (the process listing command usually installed on Unix variants
   including Linux and MacOS)
@@ -70,21 +74,21 @@ There is no Windows support, but volunteers are welcome to add it.
 
 While the default configuration should work for most cases, there are several
 settings you can adjust to fit your needs.  For details, see `emacs-preload
-help options` or the [[Options]] page on the wiki.
+--help` or [Usage.md](Usage.md) in the repository.
 
 ## Documentation
 
-Documentation is available from `emacs-preload help`.  An online copy of this
-documentation is available at
-<https://bitbucket.org/adamsmd/emacs-preload/wiki>.
+Documentation is available from `emacs-preload help` or [Usage.md](Usage.md)
+in the repository.
 
 ## License
 
-GPL version 3.0.  See [LICENSE](LICENSE) for details.
+GPL version 3.0.  For details, see [LICENSE.txt](LICENSE.txt) in the
+repository or online at <https://www.gnu.org/licenses/gpl.txt>
 
 ## Reporting bugs
 
-Submit bug to the issue tracker at
+Submit bugs to the issue tracker at
 <https://bitbucket.org/adamsmd/emacs-preload/issues>.
 
 My spare time is very limited and this is not my primary project, so bug
@@ -107,10 +111,8 @@ emacs-preload`.
 
 ## Contributing
 
-The source repository is <https://bitbucket.org/adamsmd/emacs-preload>.
-
-See the [[Development]] page on the wiki for more details and development
-guidelines.
+For development guidelines, see [Development.md](Development.md) in the
+repository.
 
 ## Frequently Asked Questions (FAQ)
 
@@ -158,13 +160,12 @@ Points of note:
 
 4. Terminal mode (i.e., with `-nw`) is almost as fast as `vim`.
 
-5. GUI mode (i.e., without `-nw`) is 3 times slower than `gvim`.
+5. GUI mode (i.e., without `-nw`) is 2.5 times slower than `gvim`.
 
 6. While it would be nice to further improve these times, `emacs-preload`
    achieves reasonably short startup times.  Further improvements would have
    to be to `emacsclient` itself.
 
-
 ### How does it work?
 
-See the [[Implementation]] page on the wiki.
+See [Implementation.md](Implementation.md) in the repository.
