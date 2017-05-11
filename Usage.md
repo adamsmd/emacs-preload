@@ -36,19 +36,24 @@ following where `<name>` is internally determined by `emacs-preload`:
 
 - `emacsclient --quiet --socket-name <name> --create-frame <args ...>`
 
-For more details visit the project home page at
+**Note:** Optional argument (a.k.a. flags) passed to `emacs-preload` must
+occur *before* the subcommand.  Anything afterwards is passed to the
+subcommand unchanged.  This is so that arguments to commands like `emacs-
+preload run` are not intercepted.
+
+For more details about this program visit the project home page at
 <https://bitbucket.org/adamsmd/emacs-preload>
 
 ## Configuration
 
-TODO: flags must be before sub-command
+Any of the following optional arguments can also be configured by setting an
+environment variable.  For example, both the `--start-delay` option and the
+`EMACS_PRELOAD_START_DELAY` environment variable set the `START_DELAY` to be
+used.  When both are set, optional arguments override environment variables.
 
-TODO: Environment variables (help subcommand?)
-
-TODO: Booleans. True values are 'y', 'yes', 't', 'true', 'on', and '1'; false
-values are 'n', 'no', 'f', 'false', 'off', and '0'
-
-
+For environment variables, `y`, `yes`, `t`, `true`, `on`, and `1` are
+interpreted as true, and `n`, `no`, `f`, `false`, `off`, and `0` are
+interpreted as false.  These are all case insensitive.
 
 optional arguments: |
 ----|----
