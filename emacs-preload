@@ -725,39 +725,42 @@ def parse_args():
     p = argparse.ArgumentParser(usage='%(prog)s [options] <subcommand> ...',
         add_help=False, formatter_class=argparse.RawDescriptionHelpFormatter,
         description=doc('''
-# Emacs Preload: Fast Emacs Startup by Preloading Emacs Servers
+            # Emacs Preload: Fast Emacs Startup by Preloading Emacs Servers
 
-This program is a drop-in replacement for Emacs that reduces start times
-by preloading Emacs server instances in the background.
+            This program is a drop-in replacement for Emacs that reduces start
+            times by preloading Emacs server instances in the background.
 
-## Examples
+            ## Examples
 
-If you do not care about the details, just use `emacs-preload run` instead of
-`emacs`, and the tool will take care of the test.
+            If you do not care about the details, just use `emacs-preload run`
+            instead of `emacs`, and the tool will take care of the test.
 
-The first run after a boot will be as slow as a normal `emacs` startup as
-there are no servers preloaded yet.  After that, the pool is automatically
-repopulated, and later runs should be much faster.
+            The first run after a boot will be as slow as a normal `emacs`
+            startup as there are no servers preloaded yet.  After that, the
+            pool is automatically repopulated, and later runs should be much
+            faster.
 
-You can avoid this initial slowness by populating the server pool in advance
-with `emacs-preload start`.  In fact, `run` populates the pool by running
-`start` in the background.
+            You can avoid this initial slowness by populating the server pool
+            in advance with `emacs-preload start`.  In fact, `run` populates
+            the pool by running `start` in the background.
 
-Any argument that can be passed to `emacsclient` is accepted.  Common use
-cases include:
+            Any argument that can be passed to `emacsclient` is accepted.
+            Common use cases include:
 
-`emacs-preload run`
+            - `emacs-preload run`
 
-`emacs-preload run -nw`
+            - `emacs-preload run -nw`
 
-`emacs-preload run file.txt`
+            - `emacs-preload run file.txt`
 
-An invocation of the form `emacs-preload run <args ...>` corresponds to:
+            An invocation of the form `emacs-preload run <args ...>`
+            corresponds to the following where `<name>` is internally
+            determined by `emacs-preload`:
 
-`emacsclient --quiet --socket-name <name> --create-frame <args ...>`
+            - `emacsclient --quiet --socket-name <name> --create-frame <args ...>`
 
-For more details visit the project home page at
-<https://bitbucket.org/adamsmd/emacs-preload>
+            For more details visit the project home page at
+            <https://bitbucket.org/adamsmd/emacs-preload>
 
             ## Configuration
 
@@ -768,6 +771,8 @@ For more details visit the project home page at
             TODO: Booleans. True values are 'y', 'yes', 't', 'true', 'on', and '1'; false values are 'n', 'no', 'f', 'false', 'off', and '0'
 
             '''))
+# TODO: override add_argument_group to get '#' headers on optional arguments and subcommands
+
 
     ################################
     # Options
@@ -892,7 +897,7 @@ For more details visit the project home page at
             {}''', kill_doc('', '`cleanup` and `kill-orphans`')))
 
     # TODO: document code
-    def export_wiki(args):
+    def export_usage(args):
         with err('error while writing to {}', args.file), \
              open(args.file, 'w') as file, \
              contextlib.redirect_stdout(file):
@@ -941,9 +946,10 @@ For more details visit the project home page at
                     for action in value['subcommand']._actions: # TODO: public api?
                         print(f('`{}` | {}', action.dest, re.sub('\n\s*', ' ', action.help)))
 
-    c = subcommand(export_wiki, help='Generate wiki version of all usage messages',
-        description=doc('''Create BitBucket formatted wiki files for all the usage messages'''))
-    c.add_argument('file', nargs='?', default='Usage.md', help='The file in which to put the usage messages')
+    c = subcommand(export_usage, help='Generate Markdown version of usage messages',
+        description=doc('''Generate Markdown version of usage messages'''))
+    c.add_argument('file', nargs='?', default='Usage.md',
+        help='The file in which to put the usage messages')
 
     # TODO: automate release and inclusion of SHA-1 hash
 

@@ -20,18 +20,19 @@ You can avoid this initial slowness by populating the server pool in advance
 with `emacs-preload start`.  In fact, `run` populates the pool by running
 `start` in the background.
 
-Any argument that can be passed to `emacsclient` is accepted.  Common use
-cases include:
+Any argument that can be passed to `emacsclient` is accepted. Common use cases
+include:
 
-`emacs-preload run`
+- `emacs-preload run`
 
-`emacs-preload run -nw`
+- `emacs-preload run -nw`
 
-`emacs-preload run file.txt`
+- `emacs-preload run file.txt`
 
-An invocation of the form `emacs-preload run <args ...>` corresponds to:
+An invocation of the form `emacs-preload run <args ...>` corresponds to the
+following where `<name>` is internally determined by `emacs-preload`:
 
-`emacsclient --quiet --socket-name <name> --create-frame <args ...>`
+- `emacsclient --quiet --socket-name <name> --create-frame <args ...>`
 
 For more details visit the project home page at
 <https://bitbucket.org/adamsmd/emacs-preload>
@@ -85,7 +86,7 @@ connect | Connect to a preload server
 cleanup | Cleanup broken servers
 kill-orphans | Kill orphaned servers
 kill-all | Kill all servers
-export-wiki | Generate wiki version of all usage messages
+export-usage | Generate Markdown version of usage messages
 help | Prints help for subcommands
 
 
@@ -209,11 +210,11 @@ not part of `stop` or `cleanup` since there is no way to tell if the servers
 skipped by `cleanup` have connected clients.  This command should only be used
 when `cleanup` and `kill-orphans` to fail to shutdown a server.
 
-## export-wiki
+## export-usage
 
-Usage: `emacs-preload [options] export-wiki`
+Usage: `emacs-preload [options] export-usage`
 
-Create BitBucket formatted wiki files for all the usage messages
+Generate Markdown version of usage messages
 
 Arguments | 
 ----------|-
@@ -227,4 +228,4 @@ None
 
 Arguments | 
 ----------|-
-`subcommand` | The subcommand for which to print help (choose from `run`, `check`, `start`, `stop`, `status`, `init`, `connect`, `cleanup`, `kill-orphans`, `kill-all`, `export-wiki`, or `help`)
+`subcommand` | The subcommand for which to print help (choose from `run`, `check`, `start`, `stop`, `status`, `init`, `connect`, `cleanup`, `kill-orphans`, `kill-all`, `export-usage`, or `help`)

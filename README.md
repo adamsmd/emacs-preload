@@ -1,34 +1,36 @@
 # Emacs Preload: Fast Emacs Startup by Preloading Emacs Servers
 
-This program is a drop-in replacement for Emacs that reduces start times
-by preloading Emacs server instances in the background.
+This program is a drop-in replacement for Emacs that reduces start
+times by preloading Emacs server instances in the background.
 
 ## Examples
 
-If you do not care about the details, just use `emacs-preload run` instead of
-`emacs`, and the tool will take care of the test.
+If you do not care about the details, just use `emacs-preload run`
+instead of `emacs`, and the tool will take care of the test.
 
-The first run after a boot will be as slow as a normal `emacs` startup as
-there are no servers preloaded yet.  After that, the pool is automatically
-repopulated, and later runs should be much faster.
+The first run after a boot will be as slow as a normal `emacs`
+startup as there are no servers preloaded yet.  After that, the
+pool is automatically repopulated, and later runs should be much
+faster.
 
-You can avoid this initial slowness by populating the server pool in advance
-with `emacs-preload start`.  In fact, `run` populates the pool by running
-`start` in the background.
+You can avoid this initial slowness by populating the server pool
+in advance with `emacs-preload start`.  In fact, `run` populates
+the pool by running `start` in the background.
 
-Any argument that can be passed to `emacsclient` is accepted.  Common use
-cases include:
+Any argument that can be passed to `emacsclient` is accepted.
+Common use cases include:
 
-```
-$ emacs-preload run
-$ emacs-preload run -nw
-$ emacs-preload run file.txt
-```
+- `emacs-preload run`
 
-An invocation of the form `emacs-preload run <args ...>` corresponds to:
-```
-emacsclient --quiet --socket-name <name> --create-frame <args ...>
-```
+- `emacs-preload run -nw`
+
+- `emacs-preload run file.txt`
+
+An invocation of the form `emacs-preload run <args ...>`
+corresponds to the following where `<name>` is internally
+determined by `emacs-preload`:
+
+- `emacsclient --quiet --socket-name <name> --create-frame <args ...>`
 
 ## Download
 
