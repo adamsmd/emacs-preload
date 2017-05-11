@@ -802,11 +802,12 @@ def parse_args():
         # Extract the manually defined metavar if there is any
         if isinstance(default_value, tuple):
             metavar = default_value[0]
-            value = default_value[1]
+            default_value = default_value[1]
         # Otherwise, name the metavar after the type
         else:
             metavar = type(default_value).__name__.upper()
-            value = default_value
+
+        value = default_value
 
         # Determine default value and add to documentation
         env_value = os.getenv(f('{}{}', ENV_PREFIX, key))
@@ -819,6 +820,7 @@ def parse_args():
             value = env_value
 
         name=key.lower().replace('_', '-')
+
         # Simple Boolean flags
         if isinstance(default_value, bool):
             p.add_argument(f('--{}', name), default=value, action='store_true', dest=key, help=documentation)
