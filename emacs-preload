@@ -55,6 +55,7 @@ def configs():
         ('QUERY_EMACS', False, 'Call emacs to determine LINK_DIR and SOCKET_DIR.'
          + ' Off by default for performance.'),
         ('SIZE', ('SIZE', 7), 'Number of servers to keep running (see `start` and `stop`)'),
+        ('SERVER_ARG', ('ARG', []), 'Argument appended to `emacs --daemon` when starting servers.  Repeat for multiple arguments.'), #TODO: multiple in environment
         ('EMACS', ('FILE', 'emacs'), 'The emacs binary to use'),
         ('EMACSCLIENT', ('FILE', 'emacsclient'), 'The emacsclient binary to use'),
         ('PS', ('FILE', 'ps'), 'The ps binary to use for process listing'),
@@ -521,7 +522,7 @@ def start(args):
             (fd, socket) = tempfile.mkstemp(dir=SOCKET_DIR, prefix=PREFIX)
             os.close(fd)
         with err('failed to create emacs server for socket file {}', socket):
-            cmd(EMACS, '--daemon='+socket,
+            cmd(EMACS, '--daemon='+socket, *SERVER_ARG,
                 stdout=subprocess.DEVNULL if QUIET else None,
                 stderr=subprocess.DEVNULL if QUIET else None)
         with err('failed to create link from {} to socket {}', LINK_DIR, socket):
@@ -826,6 +827,10 @@ def parse_args():
             p.add_argument(f('--{}', name), default=value, action='store_true', dest=key, help=documentation)
             p.add_argument(f('--no-{}', name), default=value, action='store_false',
                 dest=key, help=f('Disable --{}', name))
+        # Lists
+        elif isinstance(default_value, list):
+            p.add_argument(f('--{}', name), metavar=metavar, action='append', dest=key,
+                default=value, help=documentation)
         # Options with arguments
         else:
             p.add_argument(f('--{}', name), metavar=metavar, action='store', dest=key,
