@@ -266,9 +266,14 @@ def client_prefix(): return f('{} --quiet --socket-name ', EMACSCLIENT)
 def client_socket_prefix(): return f('{}{}', client_prefix, SOCKET_DIR)
 
 # Convert a link path to a socket path
-def socket_from_link(path):
-    with err('failed to follow link {}', path):
-        return os.path.join(os.path.dirname(path), os.readlink(path))
+def socket_from_link(link):
+    with err('failed to follow link {}', link):
+        socket = os.path.join(os.path.dirname(link), os.readlink(link))
+    expected = os.path.abspath(os.path.join(SOCKET_DIR, os.path.basename(link)))
+    actual = os.path.abspath(socket)
+    check(expected == actual, 
+        'expected path {} does not match actual path {}', expected, actual)
+    return socket
 
 # Generator that lists available preload links
 def links(non_links=False):
