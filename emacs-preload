@@ -207,7 +207,7 @@ def wrap_lines():
     width = max(width, 11)
 
     def doc(d, *args, **kwargs):
-        paragraphs = [textwrap.fill(re.sub('\s+', ' ', p.strip()), width)
+        paragraphs = [textwrap.fill(re.sub('\n\s*', ' ', p.strip()), width)
             for p in f(d, *args, **kwargs).split('\n\n')]
         return '\n\n'.join(paragraphs)
     return doc
@@ -771,6 +771,13 @@ def parse_args():
 ##    "~/.emacs.d/")
 ##       (format "%s/emacs%d" (or (getenv "TMPDIR") "/tmp") (user-uid)))
 
+TODO: help should support printing results of --help
+TODO: include readme
+    # TODO: in main usage: for a longer overview do help readme
+
+
+##Running `emacs-preload check`
+##prints the current configuration under "Configuration variables".  You can 
 
             '''))
 
@@ -816,17 +823,17 @@ def parse_args():
     s = p.add_subparsers(title='subcommands', dest='subcommand')
     s.required = True # Workaround for bug in `argparse` (as of Python 3.5)
     subcommands=collections.OrderedDict() # OrderedDict so printed in a consistent order
-    topics=collections.OrderedDict() # OrderedDict so printed in a consistent order
 
-    def subcommand(func, name=None, description=None, *args, **kwargs):
+    def subcommand(func, name=None, description=None, **kwargs):
         if name is None:
             name = func.__name__
         name = name.replace('_', '-')
 
         c = s.add_parser(name, prog=f('emacs-preload [options] {}', name), description=description,
-            add_help=False, formatter_class=argparse.RawDescriptionHelpFormatter, *args, **kwargs)
+            add_help=False, formatter_class=argparse.RawDescriptionHelpFormatter, **kwargs)
         c.set_defaults(action=func)
-        subcommands[name] = c
+        kwargs['subcommand'] = c
+        subcommands[name] = kwargs
         return c
 
     c = subcommand(run,
@@ -898,34 +905,8 @@ def parse_args():
 
     # TODO: document code
     def export_wiki(args):
-        dst = args.dir
-        check(os.path.isdir(dst),
-            'destination not a directory: {}', dst)
-
-        filename = os.path.join(dst, 'Home.md')
-        with err('error while writing to {}', filename), \
-             open(filename, 'w') as file, \
-             contextlib.redirect_stdout(file):
-            print('# Home')
-            print()
-            print('[[Usage]]')
-            print('[[Subcommands]]')
-            print('[[Options]]')
-#Running `emacs-preload check`
-#prints the current configuration under "Configuration variables".  You can 
-            print('[[Technical details]]')
-            print('[[Development]]')
-            print()
-
-        filename = os.path.join(dst, 'README.md')
-        with err('error while writing to {}', filename), \
-             open(filename, 'w') as file, \
-             contextlib.redirect_stdout(file):
-            print('# README')
-
-        filename = os.path.join(dst, 'Usage.md')
-        with err('error while writing to {}', filename), \
-             open(filename, 'w') as file, \
+        with err('error while writing to {}', args.file), \
+             open(args.file, 'w') as file, \
              contextlib.redirect_stdout(file):
             print('# Usage')
             print()
@@ -933,115 +914,58 @@ def parse_args():
             print()
             print(p.description)
             print()
-            print('TODO: optional arguments')
+            print('optional arguments: |')
+            print('----|----')
+            for action in p._actions:
+                if action.help is not None:
+                    print(f('{} {} | {}',
+                        ', '.join(action.option_strings),
+                        or_none(action.metavar, ''),
+                        action.help))
             print()
-            print('TODO: subcommands')
-
-        filename = os.path.join(dst, 'Subcommands.md')
-        with err('error while writing to {}', filename), \
-             open(filename, 'w') as file, \
-             contextlib.redirect_stdout(file):
-            print('# Subcommands')
-            # Print help=
-            print()
+            print('subcommands: |')
+            print('----|----')
             for key in subcommands:
+                print(f('{} | {}', key, re.sub('\n\s*', ' ', subcommands[key]['help'])))
+            print()
+
+            for key in subcommands:
+                print()
                 value = subcommands[key]
                 print(f('## {}', key))
                 print()
                 args = ''
-                for action in value._actions:
-                    form = \
-                        ' {}' if action.nargs is None else \
-                        ' [{}]' if action.nargs == '?' else \
-                        ' [{0} [{0} ...]' if action.nargs == '*' else \
-                        None
-                    args += f(form, action.dest)
-                print(f('Usage: `{}{}`', value.prog, args))
+                if 'nargs' in value:
+                    for action in value['nargs']:
+                        form = \
+                            ' {}' if action.nargs is None else \
+                            ' [{}]' if action.nargs == '?' else \
+                            ' [{0} [{0} ...]' if action.nargs == '*' else \
+                            None
+                        args += f(form, action.dest)
+                print(f('Usage: `{}{}`', value['subcommand'].prog, args))
                 print()
-                print(f('{}', value.description))
-                if value._actions != []:
+                print(f('{}', value['subcommand'].description))
+                if value['subcommand']._actions != []:
                     print()
                     print(f('Arguments | '))
                     print(f('----------|-'))
-                    for action in value._actions: # TODO: public api?
-                        print(f('`{}` | {}', action.dest, re.sub('\s+', ' ', action.help)))
+                    for action in value['subcommand']._actions: # TODO: public api?
+                        print(f('`{}` | {}', action.dest, re.sub('\n\s*', ' ', action.help)))
 
-        filename = os.path.join(dst, 'Topics.md')
-        with err('error while writing to {}', filename), \
-             open(filename, 'w') as file, \
-             contextlib.redirect_stdout(file): \
-            print('# Topics')
-
-    # TODO: help readme
-    # TODO: in main usage: for a longer overview do help readme
-
-    c = subcommand(export_wiki, help='Generate wiki documentation files',
-        description=doc('''Create BitBucket formatted wiki files for all the documentation'''))
-    c.add_argument('dir', help='The directory into which to put the documentation files')
+    c = subcommand(export_wiki, help='Generate wiki version of all usage messages',
+        description=doc('''Create BitBucket formatted wiki files for all the usage messages'''))
+    c.add_argument('file', nargs='?', default='Usage.md', help='The file in which to put the usage messages')
 
     # TODO: automate release and inclusion of SHA-1 hash
 
-    topics['Options'] = doc('''TODO''')
-    topics['Development'] = doc('''
-
-Development notes
-
-Self contained:
- - No installation needed
- - No third party libraries needed
-Cross platform:
- - Linux
- - MacOS
- - Maybe Windows (if someone wants to port it)
-   - Could need `ps`
-Performance:
- - Startup should be below human perception threshold
- - Prefer library methods over spawning processes
-Safety:
-Don't capitalize errors (they must be compatable with `because`)
-Errors thrown from a given <line> include [#<line>] at the start
-
-Capitalize all documentation
-Indent four columns (even for wrapped statements)
-Error message numbers are line numbers
-
-Line length limit: 100.
-
-- Linters:
-  + pylint
-  + pycodestyle
-  + pydocstyle
-  + flake8
-        ''')
-    topics['Implementation'] = doc('''
-## Technical details
-
-Data structures:
- ~/.emacs.d/preload/preload-XXXX
- /tmp/emacs1000/preload-XXXX
- emacs server
-
-Technical details:
-Emacs deamons put a socket file in `/tmp/emacs$UID/$NAME`
-This script puts in ~/.emacs.d/preload/ symlinks to the socket fild of the servers it starts.
-When this script connects to a server, it removes that symlink
-Thus all the symlinks in ~/.emacs.d/preload/ represent unused servers that we can connect to.
-
-When the number of symlinks in ~/.emacs.d/preload/ is low,
-this script launches more servers in the background.
-''')
-
     def help(args):
-        # as subcommand
         if args.subcommand is None:
-            subcommands['help'].print_help()
+            subcommands['help']['subcommand'].print_help()
         elif args.subcommand in subcommands:
-            subcommands[args.subcommand].print_help()
-        # TODO: topics
+            subcommands[args.subcommand]['subcommand'].print_help()
         else:
             error('no subcommand {}. ', args.subcommand)
-
-#    help_description=
 
     # Last so we can get a list of all subcommands and topics
     c = subcommand(help, help='Prints help for subcommands', description=help_description())
@@ -1053,7 +977,7 @@ this script launches more servers in the background.
 
     # Arguments to `connect` and `run` are passed on to `emacsclient`.  So we
     # do not parse them.  For consistency, we do this for all subcommands.
-    for c in subcommands.values(): literal_args(c)
+    for c in subcommands.values(): literal_args(c['subcommand'])
 
     return p.parse_args()
 

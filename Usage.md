@@ -41,14 +41,15 @@ three could happen.
 ##EMACS_PRELOAD_SOCKET_DIR=/tmp/emacs$UID ##    "~/.emacs.d/") ##
 (format "%s/emacs%d" (or (getenv "TMPDIR") "/tmp") (user-uid)))
 
-TODO: help should support printing results of --help TODO: include readme
+TODO: help should support printing results of --help TODO: include readme #
+TODO: in main usage: for a longer overview do help readme
 
 ##Running `emacs-preload check` ##prints the current configuration under
 "Configuration variables".  You can
 
 
 
-optional arguments:
+optional arguments: |
 ----|----
 -h, --help  | Show this help message and exit
 -v, --version  | Show program's version number and exit
@@ -74,7 +75,7 @@ optional arguments:
 --link-dir DIR | Directory in which to place links (default /home/adamsmd/.emacs.d/preload)
 --socket-dir DIR | The directory in which emacs stores its sockets (default /tmp/emacs1000)
 
-subcommands:
+subcommands: |
 ----|----
 run | Main `emacs-preload` subcommand.  Connect to a preload server and in the background start new servers.
 check | Check for errors
