@@ -49,5 +49,12 @@ patch emacs
 
 ## When things go wrong (`emacs-preload cleanup`, `emacs-preload kill-orphans`, and `emacs-preload kill-all`)
 
+There are a few ways things can break:
+ (1) The server could shut down
+ (2) The socket file could be removed
+ (3) The symlinks in ~/.emacs.d/preload/ could be removed
+
+Also, any combination of the above three could happen.
+
 cleanup/kill-orphans/kill-all
 
