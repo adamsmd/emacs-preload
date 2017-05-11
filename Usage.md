@@ -66,6 +66,7 @@ optional arguments: |
 --query-emacs  | Call emacs to determine LINK_DIR and SOCKET_DIR. Off by default for performance. (default False)
 --no-query-emacs  | Disable --query-emacs
 --size SIZE | Number of servers to keep running (see `start` and `stop`) (default 7)
+--server-arg ARG | Argument appended to `emacs --daemon` when starting servers.  Repeat for multiple arguments. (default [])
 --emacs FILE | The emacs binary to use (default emacs)
 --emacsclient FILE | The emacsclient binary to use (default emacsclient)
 --ps FILE | The ps binary to use for process listing (default ps)

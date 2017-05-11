@@ -799,7 +799,7 @@ def parse_args():
         version=f('emacs-preload version {}', __version__),
         help='Show program\'s version number and exit')
     for (key, default_value, documentation) in configs():
-        # Extract the manually defined metavar is there is any
+        # Extract the manually defined metavar if there is any
         if isinstance(default_value, tuple):
             metavar = default_value[0]
             value = default_value[1]
