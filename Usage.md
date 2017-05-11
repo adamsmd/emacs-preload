@@ -4,48 +4,21 @@ Usage: `emacs-preload [options] <subcommand> ...`
 
 TODO description
 
-TODO: TL;DR basic usage
+### Examples
 
-TODO: Environment variables (help subcommand?) Booleans # True values are 'y',
-'yes', 't', 'true', 'on', and '1'; # false values are 'n', 'no', 'f', 'false',
-'off', and '0'
+TODO: basic usage
+
+TODO: The default creates a frame, but this can (?) be overrided by passing
+`-nw`
+
+### Configuration
 
 TODO: flags must be before sub-command
 
-# TODO: The default creates a frame, but this can (?) be overrided by passing
-`-nw`
+TODO: Environment variables (help subcommand?)
 
-# TODO: document bool parsing
-
-# The most common usage is simply: #   emacs-preload connect ARGS ... # where
-ARGS are arguments to be passed to `emacsclient` (e.g., files to edit).
-
-# Data structures: #  ~/.emacs.d/preload/preload-XXXX #
-/tmp/emacs1000/preload-XXXX #  emacs server
-
-# Technical details: # Emacs deamons put a socket file in
-`/tmp/emacs$UID/$NAME` # This script puts in ~/.emacs.d/preload/ symlinks to
-the socket fild of the servers it starts. # When this script connects to a
-server, it removes that symlink # Thus all the symlinks in ~/.emacs.d/preload/
-represent unused servers that we can connect to. # # When the number of
-symlinks in ~/.emacs.d/preload/ is low, # this script launches more servers in
-the background.
-
-# # There are a few ways things can break: #  (1) The server could shut down #
-(2) The socket file could be removed #  (3) The symlinks in
-~/.emacs.d/preload/ could be removed # # Also, any combination of the above
-three could happen.
-
-## About 150ms delay if not already have these
-##EMACS_PRELOAD_LINK_DIR=$HOME/.emacs.d/preload
-##EMACS_PRELOAD_SOCKET_DIR=/tmp/emacs$UID ##    "~/.emacs.d/") ##
-(format "%s/emacs%d" (or (getenv "TMPDIR") "/tmp") (user-uid)))
-
-TODO: help should support printing results of --help TODO: include readme #
-TODO: in main usage: for a longer overview do help readme
-
-##Running `emacs-preload check` ##prints the current configuration under
-"Configuration variables".  You can
+TODO: Booleans. True values are 'y', 'yes', 't', 'true', 'on', and '1'; false
+values are 'n', 'no', 'f', 'false', 'off', and '0'
 
 
 
