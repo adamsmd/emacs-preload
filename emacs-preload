@@ -772,7 +772,7 @@ def parse_args():
 
             '''))
 # TODO: override add_argument_group to get '#' headers on optional arguments and subcommands
-
+# TODO: allow path to python3 to be configured
 
     ################################
     # Options

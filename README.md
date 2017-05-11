@@ -42,28 +42,29 @@ You can download the latest release from
 
 Or you can clone the repository with either of the following.
 
-```hg clone https://bitbucket.org/adamsmd/emacs-preload```
+- `hg clone https://bitbucket.org/adamsmd/emacs-preload`
 
-```hg clone ssh://hg@bitbucket.org/adamsmd/emacs-preload```
+- `hg clone ssh://hg@bitbucket.org/adamsmd/emacs-preload`
 
 ## Installation
 
-This program is a self contained python script.  Everything in the
-`emacs-preload` file.  Just copy it to wherever you want it installed and mark
-it as executable (e.g., `chmod a+x emacs-preload`).
+This program is a self contained Python 3 script.  Copy `emacs-preload`
+wherever you want it installed, and mark it as executable with `chmod a+x
+emacs-preload`.
 
 ### Dependencies
 
-Dependencies have intentionally been kept minimal.  They are:
+Dependencies have been intentionally kept minimal.  They are:
 
 - Python 3.5 or higher (`python3`)
 - Emacs (`emacs`)
 - Emacs client (`emacsclient`)
-- `ps` (the process listing command usually installed on Unix variants
-  including Linux and MacOS)
+- Utility commands (included in most Unix variants including Linux and MacOS)
+  + `ps` (process listing)
+  + `/usr/bin/env` (so the shebang (`#!`) line can find `python3`)
 
-The paths to the last three can be configured if they are in a non-standard
-location.
+Except for `python3` and `/usr/bin/env` (which are hard coded into the shebang
+line), paths to all of these can be configured.
 
 ### Porability
 
