@@ -34,12 +34,24 @@ This program is designed to be self contained:
 
 ## Creating a new release
 
-1. Generate usage: `./emacs-preload export-usage`
-2. Commit if changed.
-3. Bump the version number in `__version__`.  E.g., `0.1.0`
-4. Commit.  E.g., `hg ci -m 'emacs-preload-0.1.1'`
-5. Create a tag.  E.g., `hg tag emacs-preload-0.1.0`
-6. Get the SHA-1 from `emacs-preload --version`
+1. Check for outstanding changes
+   - `hg diff`
+   - `hg pull`
+2. Generate usage:
+   - `./emacs-preload export-usage`
+   - `hg diff`
+   - `hg ci -m 'Updated Usage.md'`
+3. Bump the version number:
+   - `__version__ = 0.1.0 ...`
+   - `hg diff`
+4. Check for upstream changes again:
+   - `hg pull`
+5. Commit and tag and push:
+   - `hg ci -m 'emacs-preload-0.1.0'`
+   - `hg tag emacs-preload-0.1.0`
+   - `hg pushh`
+6. Get the SHA-1:
+   - `emacs-preload --version`
 7. Go to <https://bitbucket.org/adamsmd/emacs-preload/addon/com.releasebucket/releases> and click "Create release".
    - Branch: `default`
    - Version: `0.1.0`
@@ -48,4 +60,4 @@ This program is designed to be self contained:
        tag: emacs-preload-0.1.0  
        sha-1: 5C712A2ABA07CFCD01AC7385B3793C17811ADEA
 
-       One line description
+       Description
