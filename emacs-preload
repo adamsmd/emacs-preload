@@ -930,7 +930,7 @@ def parse_args():
 
             {}''', kill_doc('', '`cleanup` and `kill-orphans`')))
 
-    # TODO: document code
+    # Generate a Markdown version of the usage message
     def export_usage(args):
         with err('error while writing to {}', args.file), \
              open(args.file, 'w') as file, \
