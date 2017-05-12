@@ -139,10 +139,12 @@ def not_dry(c):
     if DRY_RUN: error('Dry run not supported by {}', c)
 
 # Run the process described by `args`
-def cmd(*args, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=None, dry_run=False):
+def cmd(*args, replace=False, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=None, dry_run=False):
     if dry_run and DRY_RUN:
         log('skipping due to dry run: {}', ' '.join(map(shlex.quote, args)))
         return None
+    elif replace:
+        os.execvp(args[0], args)
     else:
         with err('process failed: {}', ' '.join(map(shlex.quote, args))):
             r = subprocess.run(args,
@@ -247,12 +249,8 @@ def elisp(code): return cmd(EMACS, '--batch', '--eval', code, stderr=subprocess.
 
 # Run `emacsclient` with a given socket.  Note that accepts both absolute and
 # relative paths because `emacsclient` already supports that.
-def emacs_cl(socket, *args, replace=False, **kwargs):
-    args = [EMACSCLIENT, '--quiet', '--socket-name', socket] + list(args)
-    if replace:
-        os.execvp(EMACSCLIENT, args)
-    else:
-        return cmd(*args, **kwargs)
+def emacs_cl(socket, *args, **kwargs):
+    return cmd(EMACSCLIENT, '--quiet', '--socket-name', socket, *args, **kwargs)
 
 # Prefix that server processes start with in `ps`
 def server_prefix(): return f('{} --daemon=', EMACS)
@@ -264,7 +262,7 @@ def server_socket_prefix(): return f('{}{}', server_prefix(), SOCKET_DIR)
 def client_prefix(): return f('{} --quiet --socket-name ', EMACSCLIENT)
 
 # Prefix striped from client processes in `ps` to get the socket name
-def client_socket_prefix(): return f('{}{}', client_prefix, SOCKET_DIR)
+def client_socket_prefix(): return f('{}{}', client_prefix(), SOCKET_DIR)
 
 # Convert a link path to a socket path
 def socket_from_link(link):
@@ -272,7 +270,7 @@ def socket_from_link(link):
         socket = os.path.join(os.path.dirname(link), os.readlink(link))
     expected = os.path.abspath(os.path.join(SOCKET_DIR, os.path.basename(link)))
     actual = os.path.abspath(socket)
-    check(expected == actual, 
+    check(expected == actual,
         'expected path {} does not match actual path {}', expected, actual)
     return socket
 
@@ -590,7 +588,7 @@ def connect(args):
                     replace=True, stdin=None, stdout=None, stderr=None, dry_run=True)
             # `emacs_cl(..., replace=True, ...) does a Unix `exec`, so it is
             # an error if we get to this line.
-            sys.exit(1)
+            raise Exception('returned from exec')
 
 # Cleanup broken servers
 def cleanup(args):
