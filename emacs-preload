@@ -55,7 +55,8 @@ def configs():
         ('QUERY_EMACS', False, 'Call emacs to determine LINK_DIR and SOCKET_DIR.'
          + ' Off by default for performance.'),
         ('SIZE', ('SIZE', 7), 'Number of servers to keep running (see `start` and `stop`)'),
-        ('SERVER_ARG', ('ARG', []), 'Argument appended to `emacs --daemon` when starting servers.  Repeat for multiple arguments.'), #TODO: multiple in environment
+        ('START_HOOK', ('PROG', ''), 'User hook. Called by `start` with the socket file as argument. Ignored if empty string.'),
+        ('CONNECT_HOOK', ('PROG', ''), 'User hook. Called by `connect` with the socket file as argument. Ignored if empty string.'),
         ('EMACS', ('FILE', 'emacs'), 'The emacs binary to use'),
         ('EMACSCLIENT', ('FILE', 'emacsclient'), 'The emacsclient binary to use'),
         ('PS', ('FILE', 'ps'), 'The ps binary to use for process listing'),
@@ -520,7 +521,7 @@ def start(args):
             (fd, socket) = tempfile.mkstemp(dir=SOCKET_DIR, prefix=PREFIX)
             os.close(fd)
         with err('failed to create emacs server for socket file {}', socket):
-            cmd(EMACS, '--daemon='+socket, *SERVER_ARG,
+            cmd(EMACS, '--daemon='+socket,
                 stdout=subprocess.DEVNULL if QUIET else None,
                 stderr=subprocess.DEVNULL if QUIET else None)
         with err('failed to create link from {} to socket {}', LINK_DIR, socket):
@@ -544,6 +545,9 @@ def start(args):
                         ;; defun instead of remove-hook due to add-hook called on every buffer
                         (defun server-kill-buffer () nil)
                     )''')
+        if START_HOOK != '':
+            with err('failed running START_HOOK: "{}" "{}"', START_HOOK, socket):
+                cmd(START_HOOK, socket, stdout=None, stderr=None, dry_run=True)
         time.sleep(START_DELAY)
     info('done creating servers (have {}, want {})', link_count(), size)
 
@@ -583,6 +587,9 @@ def connect(args):
                 cwd = ''.join([f('\\x{:02X}', ord(c)) for c in os.getcwd()])
                 emacs_cl(socket, '--eval', f('(setenv "PWD" "{}")', cwd),
                     dry_run=True, stdin=None, stdout=subprocess.DEVNULL)
+            if CONNECT_HOOK != '':
+                with err('failed running CONNECT_HOOK: "{}" "{}"', CONNECT_HOOK, socket):
+                    cmd(CONNECT_HOOK, socket, stdout=None, stderr=None, dry_run=True)
             with err('failed to connect to server at {}', socket):
                 emacs_cl(socket, '--create-frame', *args.args,
                     replace=True, stdin=None, stdout=None, stderr=None, dry_run=True)
@@ -825,10 +832,6 @@ def parse_args():
             p.add_argument(f('--{}', name), default=value, action='store_true', dest=key, help=documentation)
             p.add_argument(f('--no-{}', name), default=value, action='store_false',
                 dest=key, help=f('Disable --{}', name))
-        # Lists
-        elif isinstance(default_value, list):
-            p.add_argument(f('--{}', name), metavar=metavar, action='append', dest=key,
-                default=value, help=documentation)
         # Options with arguments
         else:
             p.add_argument(f('--{}', name), metavar=metavar, action='store', dest=key,
