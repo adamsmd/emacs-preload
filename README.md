@@ -172,3 +172,9 @@ Points of note:
 ### How does it work?
 
 See [Implementation.md](Implementation.md) in the repository.
+
+### Why does the socket directory default to something like `/tmp/emacs1000`?  Why not use `XDG_RUNTIME_DIR`?
+
+The default socket directory is based on what Emacs defaults to.  That said,
+you can always configure `emacs-preload` to use another directory by setting
+`SOCKET_DIR`, and this design choice may be revisited in the future.
