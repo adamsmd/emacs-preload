@@ -55,8 +55,10 @@ def configs():
         ('QUERY_EMACS', False, 'Call emacs to determine LINK_DIR and SOCKET_DIR.'
          + ' Off by default for performance.'),
         ('SIZE', ('SIZE', 7), 'Number of servers to keep running (see `start` and `stop`)'),
+        ('INIT_HOOK', ('PROG', ''), 'User hook. Called by `init` with the link directory as argument. Ignored if empty string'),
         ('START_HOOK', ('PROG', ''), 'User hook. Called by `start` with the socket file as argument. Ignored if empty string.'),
         ('CONNECT_HOOK', ('PROG', ''), 'User hook. Called by `connect` with the socket file as argument. Ignored if empty string.'),
+        ('STOP_HOOK', ('PROG', ''), 'User hook. Called by `stop` with the socket file as argument. Ignored if empty string.'),
         ('EMACS', ('FILE', 'emacs'), 'The emacs binary to use'),
         ('EMACSCLIENT', ('FILE', 'emacsclient'), 'The emacsclient binary to use'),
         ('PS', ('FILE', 'ps'), 'The ps binary to use for process listing'),
@@ -558,6 +560,9 @@ def stop(args):
     while link_count() > size:
         info('stopping server (have {}, want {})', link_count(), size)
         socket = claim_socket()
+        if STOP_HOOK != '':
+            with err('failed running STOP_HOOK: "{}" "{}"', STOP_HOOK, socket):
+                cmd(STOP_HOOK, socket, stdout=None, stderr=None, dry_run=True)
         with err('failed to send (kill-emacs) to server at {}', socket):
             emacs_cl(socket, '--eval', '(kill-emacs)')
         # Delay needed so servers after the first shutdown cleanly.
@@ -691,6 +696,9 @@ def run(args):
 
 # Create the directory for links to servers
 def init(args):
+    if INIT_HOOK != '':
+        with err('failed running INIT_HOOK: "{}" "{}"', INIT_HOOK, socket):
+            cmd(INIT_HOOK, socket, stdout=None, stderr=None, dry_run=True)
     with err('failed to create preload link directory {}', LINK_DIR):
         dry(os.makedirs, LINK_DIR, exist_ok=True)
 
