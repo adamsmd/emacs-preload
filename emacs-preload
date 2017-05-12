@@ -812,10 +812,10 @@ def parse_args():
         env_value = os.getenv(f('{}{}', ENV_PREFIX, key))
         if env_value is None:
             # Environment does not override default
-            documentation += f(' (default {})', value)
+            documentation += f(' (default \'{}\')', value)
         else:
             # Environment does override default
-            documentation += f(' (default {} but environment overrides to \'{}\')', value, env_value)
+            documentation += f(' (default \'{}\' but environment overrides to \'{}\')', value, env_value)
             value = env_value
 
         name=key.lower().replace('_', '-')
@@ -976,8 +976,6 @@ def parse_args():
         description=doc('''Generate Markdown version of usage messages'''))
     c.add_argument('file', nargs='?', default='Usage.md',
         help='The file in which to put the usage messages')
-
-    # TODO: automate release and inclusion of SHA-1 hash
 
     def help(args):
         if args.subcommand is None:
