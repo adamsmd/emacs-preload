@@ -63,7 +63,7 @@ def configs():
         ('PATCH_SERVER', True, 'Patch the emacs server to remove the quirks of server mode'),
         ('START_DELAY', 0.1, 'Seconds to wait between starting servers'),
         ('STOP_DELAY', 0.1, 'Seconds to wait between stopping servers'),
-        ('KILL_DELAY', 1.0, 'Second to wait between SIGTERM and SIGKILL when killing servers'),
+        ('KILL_DELAY', 1.0, 'Seconds to wait between SIGTERM and SIGKILL when killing servers'),
         ('CONNECT_DELAY', 0.1, 'Seconds between attempts to connect to a server'),
         ('CONNECT_ATTEMPTS', 100, 'Maximum number of attempts to connect to a server'),
         ('CONNECT_TIMEOUT', 10.0, 'Maximum seconds to keep attempting to connect to a server'),
