@@ -35,9 +35,10 @@ This program is designed to be self contained:
 ## Creating a new release
 
 1. Bump the version number in `__version__`.  E.g., `0.1.0`
-2. Create a tag.  E.g., `hg tag emacs-preload-0.1.0`
-3. Get the SHA-1 from `emacs-preload --version`
-3. Go to <https://bitbucket.org/adamsmd/emacs-preload/addon/com.releasebucket/releases> and click "Create release".
+2. Commit.
+3. Create a tag.  E.g., `hg tag emacs-preload-0.1.0`
+4. Get the SHA-1 from `emacs-preload --version`
+5. Go to <https://bitbucket.org/adamsmd/emacs-preload/addon/com.releasebucket/releases> and click "Create release".
    - Branch: `default`
    - Version: `0.1.0`
    - Title: `emacs-preload-0.1.0`
