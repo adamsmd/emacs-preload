@@ -179,11 +179,10 @@ Normally emacs-preload cleans up after itself automatically.  If it doesn't,
 you can use this command to manually cleanup.  We are working to reduce how
 often this command is needed.
 
-This command is always safe.  It will not close servers with connected clients
-or fresh servers waiting for a client.  Because this subcommand is guaranteed
-to be safe, it leaves alone servers for which it cannot confirm that there are
-no clients.  Thus you may need to use kill-orphans or kill-all subcommands to
-kill such servers.
+This command is always safe.  It will not close servers with connected
+clients.  Because this subcommand is guaranteed to be safe, it leaves alone
+servers for which it cannot confirm that there are no clients.  Thus you may
+need to use the `kill-orphans` or `kill-all` subcommands to kill such servers.
 
 Removes links in `LINK_DIR` for unreachable servers and servers that already
 have clients.  Removes sockets in `SOCKET_DIR` that do not connect to a
