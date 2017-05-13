@@ -62,10 +62,41 @@ figuring out if something has gone wrong.
 There are three parts of this system that can break: the Emacs server, the
 socket file for that server, and the link file for that server.  If any of
 these are shutdown or removed when they shouldn't or otherwise becomes
-corrupt, TODO
+corrupt, the system ends up in an inconsistent state.
 
-TODO: `emacs-preload cleanup`
+You can check if this has happened with `emacs-preload check`.  If it has,
+your first recourse is `emacs-preload cleanup`.  It removes links, sockets, or
+servers that are in broken states.  However, it careful to never remove these
+for servers that have connected clients.  It leaves alone servers for which it
+cannot confirm there are no clients.  Thus it is always safe to run but
+sometimes cannot cleanup all servers.  Note that to shutdown a server
+`eamcs-preload cleanup` sends `(kill-emacs)` to the server, whereas
+`emacs-preload kill-orphans` and `emacs-preload kill-all` both send `SIGTERM`
+and `SIGKILL` signals.
 
-TODO: `emacs-preload kill-orphans`
+In order to determine how many clients a server has, `emacs-preload cleanup`
+uses `emacsclient --eval` to query the server.  Thus, if the socket to connect
+to the server does not exist or cannot be used to connect.  Dealing with this
+is where `emacs-preload kill-orphans` and `emacs-preload kill-all` come in.
+They are unsafe in that they may shutdown servers with connected clients, but
+they can also shutdown servers that `emacs-preload cleanup` cannot.
 
-TODO: `emacs-preload kill-all`
+The `emacs-preload kill-orphans` command shutsdown any preload server that
+cannot be connected to, whereas the `emacs-preload kill-all` command shutsdown
+all preload servers.
+
+Both these commands determine which processes are preload servers by looking
+in the output of `ps` for an `emacs` command started with a `--daemon` flag
+pointing to a socket in `SOCKET_DIR` that has a filename starting with
+`PREFIX` (default `preload-`).
+
+Both these commands shutdown servers by first sending a `SIGTERM` signal and
+then `KILL_DELAY` seconds later a `SIGKILL` signal.
+
+In general you should run `emacs-preload check` before running either
+`emacs-preload kill-orphans` or `emacs-preload kill-all` to double check which
+servers would be killed.
+
+**Warning:** The `emacs-preload kill-all` kills all preload servers so any
+`emacs-preload run` or `emacs-preload connect` that are open will shutdown,
+and any data in unsaved buffers may be lost. Use this command with caution.
