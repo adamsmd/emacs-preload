@@ -58,6 +58,6 @@ This program is designed to be self contained:
    - Title: `emacs-preload-0.1.0`
    - Description (note two spaces at end of line to form a line break):
        tag: emacs-preload-0.1.0  
-       sha-1: 5C712A2ABA07CFCD01AC7385B3793C17811ADEA
+       script sha-1: 5C712A2ABA07CFCD01AC7385B3793C17811ADEA
 
        Description

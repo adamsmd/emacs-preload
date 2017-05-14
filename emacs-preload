@@ -50,25 +50,32 @@ def configs():
     link_dir = os.path.expanduser('~/.emacs.d/preload')
     socket_dir = or_none(os.getenv('TMPDIR'), '/tmp') + '/emacs' + str(os.geteuid())
     return [
+        # Miscellaneous
         ('DRY_RUN', False, 'Print commands instead of executing them'),
         ('QUIET', False, 'Supress info messages and startup messages from emacs servers'),
         ('QUERY_EMACS', False, 'Call emacs to determine LINK_DIR and SOCKET_DIR.'
          + ' Off by default for performance.'),
         ('SIZE', ('SIZE', 7), 'Number of servers to keep running (see `start` and `stop`)'),
-        ('INIT_HOOK', ('PROG', ''), 'User hook. Called by `init` with the link directory as argument. Ignored if empty string'),
-        ('START_HOOK', ('PROG', ''), 'User hook. Called by `start` with the socket file as argument. Ignored if empty string.'),
-        ('CONNECT_HOOK', ('PROG', ''), 'User hook. Called by `connect` with the socket file as argument. Ignored if empty string.'),
-        ('STOP_HOOK', ('PROG', ''), 'User hook. Called by `stop` with the socket file as argument. Ignored if empty string.'),
+
+        # Sub-processes
         ('EMACS', ('FILE', 'emacs'), 'The emacs binary to use'),
         ('EMACSCLIENT', ('FILE', 'emacsclient'), 'The emacsclient binary to use'),
         ('PS', ('FILE', 'ps'), 'The ps binary to use for process listing'),
         ('PATCH_SERVER', True, 'Patch the emacs server to remove the quirks of server mode'),
+        ('INIT_HOOK', ('PROG', ''), 'User hook. Called by `init` with the link and socket directories as arguments. Ignored if empty string'),
+        ('START_HOOK', ('PROG', ''), 'User hook. Called by `start` with the socket file as argument. Ignored if empty string.'),
+        ('CONNECT_HOOK', ('PROG', ''), 'User hook. Called by `connect` with the socket file as argument. Ignored if empty string.'),
+        ('STOP_HOOK', ('PROG', ''), 'User hook. Called by `stop` with the socket file as argument. Ignored if empty string.'),
+
+        # Delays and timeouts
         ('START_DELAY', 0.1, 'Seconds to wait between starting servers'),
-        ('STOP_DELAY', 0.1, 'Seconds to wait between stopping servers'),
-        ('KILL_DELAY', 1.0, 'Seconds to wait between SIGTERM and SIGKILL when killing servers'),
         ('CONNECT_DELAY', 0.1, 'Seconds between attempts to connect to a server'),
         ('CONNECT_ATTEMPTS', 100, 'Maximum number of attempts to connect to a server'),
         ('CONNECT_TIMEOUT', 10.0, 'Maximum seconds to keep attempting to connect to a server'),
+        ('STOP_DELAY', 0.1, 'Seconds to wait between stopping servers'),
+        ('KILL_DELAY', 1.0, 'Seconds to wait between SIGTERM and SIGKILL when killing servers'),
+
+        # Sockets and links
         ('PREFIX', 'preload-', 'Prefix to use for server names, links, and sockets'),
         ('LINK_DIR', ('DIR', link_dir), 'Directory in which to place links'),
         ('SOCKET_DIR', ('DIR', socket_dir), 'The directory in which emacs stores its sockets')]
@@ -523,6 +530,8 @@ def start(args):
             (fd, socket) = tempfile.mkstemp(dir=SOCKET_DIR, prefix=PREFIX)
             os.close(fd)
         with err('failed to create emacs server for socket file {}', socket):
+            with err('failed to change to root directory'):
+                os.chdir('/') # Avoid holding directories open
             cmd(EMACS, '--daemon='+socket,
                 stdout=subprocess.DEVNULL if QUIET else None,
                 stderr=subprocess.DEVNULL if QUIET else None)
@@ -548,7 +557,8 @@ def start(args):
                         (defun server-kill-buffer () nil)
                     )''')
         if START_HOOK != '':
-            with err('failed running START_HOOK: "{}" "{}"', START_HOOK, socket):
+            with err('failed running START_HOOK: {} {}',
+                shlex.quote(START_HOOK), shlex.quote(socket)):
                 cmd(START_HOOK, socket, stdout=None, stderr=None, dry_run=True)
         time.sleep(START_DELAY)
     info('done creating servers (have {}, want {})', link_count(), size)
@@ -561,7 +571,8 @@ def stop(args):
         info('stopping server (have {}, want {})', link_count(), size)
         socket = claim_socket()
         if STOP_HOOK != '':
-            with err('failed running STOP_HOOK: "{}" "{}"', STOP_HOOK, socket):
+            with err('failed running STOP_HOOK: {} {}',
+                shlex.quote(STOP_HOOK), shlex.quote(socket)):
                 cmd(STOP_HOOK, socket, stdout=None, stderr=None, dry_run=True)
         with err('failed to send (kill-emacs) to server at {}', socket):
             emacs_cl(socket, '--eval', '(kill-emacs)')
@@ -586,14 +597,39 @@ def connect(args):
         except Err as e:
             time.sleep(CONNECT_DELAY)
         else:
-            # TODO: anything other than PWD we need to set?
-            with err('failed to set PWD on server at {}', socket):
-                # String escape PWD in case it contains special characters
-                cwd = ''.join([f('\\x{:02X}', ord(c)) for c in os.getcwd()])
-                emacs_cl(socket, '--eval', f('(setenv "PWD" "{}")', cwd),
+            # Set the environment, umask, and default-directory
+
+            # Emacs documentation claims getenv searches (frame-prameter
+            # ... 'environment) after process-environment, but tests show it
+            # doesn't.  This may be a bug in Emacs.  Regardless, this means we
+            # have to always set process-environment.
+
+            # We ought to be able to use (process-get (car server-clients)
+            # 'env) to get the environment send by emacsclient.  However, it
+            # is not set when doing --eval.  Thus we have to send it
+            # outselves.
+
+            # Escape the string s in case it contains special characters
+            def escape(s): return ''.join([f('\\x{:02X}', ord(c)) for c in s])
+
+            env = '" "'.join([escape(key) + "=" + escape(os.environ[key]) for key in os.environ])
+            umask = os.umask(0o777)
+            os.umask(umask)
+            elisp = f('''
+                (progn
+                  (setq process-environment (list "{}"))
+                  (set-default-file-modes {})
+                  (let ((dir (process-get (car server-clients) 'server-client-directory)))
+                    (dolist (buffer (buffer-list))
+                      (set-buffer buffer)
+                      (setq default-directory dir))))''',
+                env, ~umask & 0o777)
+            with err('failed to set environment on server at {}', socket):
+                emacs_cl(socket, '--eval', elisp,
                     dry_run=True, stdin=None, stdout=subprocess.DEVNULL)
             if CONNECT_HOOK != '':
-                with err('failed running CONNECT_HOOK: "{}" "{}"', CONNECT_HOOK, socket):
+                with err('failed running CONNECT_HOOK: {} {}',
+                    shlex.quote(CONNECT_HOOK), shlex.quote(socket)):
                     cmd(CONNECT_HOOK, socket, stdout=None, stderr=None, dry_run=True)
             with err('failed to connect to server at {}', socket):
                 emacs_cl(socket, '--create-frame', *args.args,
@@ -613,7 +649,7 @@ def cleanup(args):
             try:
                 socket = socket_from_link(link)
                 clients = client_count(link)
-                check(clients > 0,
+                check(clients == 0,
                     'already in use by {} clients', clients)
                 socket_map[socket] = link
             except Err as e:
@@ -692,8 +728,6 @@ def run(args):
             with err('failed to fork'):
                 pid = os.fork()
             if pid == 0:
-                with err('failed to change to root directory'):
-                    os.chdir('/') # Avoid holding directories open
                 globals()['QUIET'] = True # Silence everything except errors
                 start(args)
             else:
@@ -706,10 +740,15 @@ def run(args):
 # Create the directory for links to servers
 def init(args):
     if INIT_HOOK != '':
-        with err('failed running INIT_HOOK: "{}" "{}"', INIT_HOOK, socket):
-            cmd(INIT_HOOK, socket, stdout=None, stderr=None, dry_run=True)
+        with err('failed running INIT_HOOK: {} {} {}',
+            shlex.quote(INIT_HOOK), shlex.quote(LINK_DIR), shlex.quote(SOCKET_DIR)):
+            cmd(INIT_HOOK, LINK_DIR, SOCKET_DIR, stdout=None, stderr=None, dry_run=True)
     with err('failed to create preload link directory {}', LINK_DIR):
         dry(os.makedirs, LINK_DIR, exist_ok=True)
+    with err('failed to create preload link directory {}', SOCKET_DIR):
+        dry(os.makedirs, SOCKET_DIR, exist_ok=True)
+
+# TODO: restart command?
 
 ################
 # Initialization and driver
