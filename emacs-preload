@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 
 # emacs-preload: Fast Emacs Startup by Preloading Emacs Servers
+# Home page: <https://bitbucket.org/adamsmd/emacs-preload>.
+#
 # Copyright (C) 2017  Michael D. Adams <https://michaeldadams.org/>
 #
 # This program is free software: you can redistribute it and/or modify
@@ -20,7 +22,6 @@ import argparse
 import base64
 import collections
 import contextlib
-import distutils.util
 import functools
 import hashlib
 import inspect
@@ -40,8 +41,8 @@ import traceback
 # NOTE: the sha1 in __version__ can be computed manually with:
 #   openssl dgst -sha1 emacs-preload
 # NOTE: we use getsourcefile instead of __file__ to avoid .pyc files
-__version__ = '0.1.1 (sha-1: ' + str(base64.b16encode(hashlib.sha1(pathlib.Path(inspect.getsourcefile(
-    lambda: None)).read_bytes()).digest()), encoding='utf-8') + ')'
+__version__ = '0.1.1 (sha-1: ' + str(base64.b16encode(hashlib.sha1(pathlib.Path(
+    inspect.getsourcefile(lambda: None)).read_bytes()).digest()), encoding='utf-8') + ')'
 
 # Configuration variables.  Set by command line flags or environment variables.
 ENV_PREFIX = 'EMACS_PRELOAD_'
@@ -62,10 +63,14 @@ def configs():
         ('EMACSCLIENT', ('FILE', 'emacsclient'), 'The emacsclient binary to use'),
         ('PS', ('FILE', 'ps'), 'The ps binary to use for process listing'),
         ('PATCH_SERVER', True, 'Patch the emacs server to remove the quirks of server mode'),
-        ('INIT_HOOK', ('PROG', ''), 'User hook. Called by `init` with the link and socket directories as arguments. Ignored if empty string'),
-        ('START_HOOK', ('PROG', ''), 'User hook. Called by `start` with the socket file as argument. Ignored if empty string.'),
-        ('CONNECT_HOOK', ('PROG', ''), 'User hook. Called by `connect` with the socket file as argument. Ignored if empty string.'),
-        ('STOP_HOOK', ('PROG', ''), 'User hook. Called by `stop` with the socket file as argument. Ignored if empty string.'),
+        ('INIT_HOOK', ('PROG', ''), 'User hook. Called by `init` with the link and socket'
+            ' directories as arguments. Ignored if empty string'),
+        ('START_HOOK', ('PROG', ''), 'User hook. Called by `start` with the socket'
+            ' file as argument. Ignored if empty string.'),
+        ('CONNECT_HOOK', ('PROG', ''), 'User hook. Called by `connect` with the socket'
+            ' file as argument. Ignored if empty string.'),
+        ('STOP_HOOK', ('PROG', ''), 'User hook. Called by `stop` with the socket'
+            ' file as argument. Ignored if empty string.'),
 
         # Delays and timeouts
         ('START_DELAY', 0.1, 'Seconds to wait between starting servers'),
@@ -84,9 +89,9 @@ def configs():
 # Errors
 
 class Err(Exception):
-    def __init__(self, lineno, message):
+    def __init__(self, line, message):
         Exception.__init__(self)
-        self.message = f('[#{}] {}', lineno, message)
+        self.message = f('[#{}] {}', line, message)
 
 def error(message, *args, **kwargs):
     raise Err(lineno(3), f(message, *args, **kwargs))
@@ -107,7 +112,7 @@ def because(m1, m2): return f('{}\n    because {}', m1, m2)
 @contextlib.contextmanager
 def noop(): yield
 
-class MuteErr (Exception): pass
+class MuteErr(Exception): pass
 @contextlib.contextmanager
 def mute():
     try: yield
@@ -129,11 +134,14 @@ def warn(message, *args, **kwargs):
     err_lineno = lineno(3)
     try: yield
     except Err as e:
-        log(Err(err_lineno, because(f(message, *args, **kwargs), e.message)).message, file=sys.stderr)
+        log(Err(err_lineno, because(f(message, *args, **kwargs), e.message)).message,
+            file=sys.stderr)
     except Exception as e:
         (_, _, tb) = sys.exc_info()
         exc_lineno = lineno(1, stack=traceback.extract_tb(tb))
-        log(Err(err_lineno, because(f(message, *args, **kwargs), Err(exc_lineno, str(e)).message)).message, file=sys.stderr)
+        e = Err(exc_lineno, str(e))
+        log(Err(err_lineno, because(f(message, *args, **kwargs), e.message)).message,
+            file=sys.stderr)
 
 ################
 # Execution control
@@ -149,7 +157,8 @@ def not_dry(c):
     if DRY_RUN: error('Dry run not supported by {}', c)
 
 # Run the process described by `args`
-def cmd(*args, replace=False, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=None, dry_run=False):
+def cmd(*args, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=None,
+    replace=False, dry_run=False):
     if dry_run and DRY_RUN:
         log('skipping due to dry run: {}', ' '.join(map(shlex.quote, args)))
         return None
@@ -220,7 +229,7 @@ def wrap_lines():
     width = max(width, 11)
 
     def doc(d, *args, **kwargs):
-        paragraphs = [textwrap.fill(re.sub('\n\s*', ' ', p.strip()), width)
+        paragraphs = [textwrap.fill(re.sub(r'\n\s*', ' ', p.strip()), width)
             for p in f(d, *args, **kwargs).split('\n\n')]
         return '\n\n'.join(paragraphs)
     return doc
@@ -615,7 +624,7 @@ def connect(args):
             env = '" "'.join([escape(key) + "=" + escape(os.environ[key]) for key in os.environ])
             umask = os.umask(0o777)
             os.umask(umask)
-            elisp = f('''
+            elisp_code = f('''
                 (progn
                   (setq process-environment (list "{}"))
                   (set-default-file-modes {})
@@ -625,7 +634,7 @@ def connect(args):
                       (setq default-directory dir))))''',
                 env, ~umask & 0o777)
             with err('failed to set environment on server at {}', socket):
-                emacs_cl(socket, '--eval', elisp,
+                emacs_cl(socket, '--eval', elisp_code,
                     dry_run=True, stdin=None, stdout=subprocess.DEVNULL)
             if CONNECT_HOOK != '':
                 with err('failed running CONNECT_HOOK: {} {}',
@@ -702,7 +711,8 @@ def kill_servers(orphans_only, args):
                     kill = True
             if kill:
                 info('sending {} to emacs server (pid {}, socket {})', sig.name, pid, socket)
-                with err('failed to send {} to emacs server (pid {}, socket {})', sig.name, pid, socket):
+                with err('failed to send {} to emacs server (pid {}, socket {})',
+                    sig.name, pid, socket):
                     dry(os.kill, pid, sig)
         time.sleep(KILL_DELAY)
     with err('failed to list servers'):
@@ -748,7 +758,14 @@ def init(args):
     with err('failed to create preload link directory {}', SOCKET_DIR):
         dry(os.makedirs, SOCKET_DIR, exist_ok=True)
 
-# TODO: restart command?
+# Restart preload servers that do not yet have a client
+def restart(args):
+    size = preload_size(args.size, link_count())
+
+    args.size = '0'
+    with err('failed to stop old servers'): stop(args)
+    args.size = str(size)
+    with err('failed to start new servers'): start(args)
 
 ################
 # Initialization and driver
@@ -760,10 +777,11 @@ def parse_args():
 
     doc = wrap_lines()
 
-    args_help = f('''Arguments to `emacsclient`.  Not parsed by `emacs-preload`.  Passed unchanged to `emacsclient`.''')
+    args_help = f('''Arguments to `emacsclient`.  Not parsed by `emacs-preload`.'
+        '  Passed unchanged to `emacsclient`.''')
 
     def size_help(size):
-        return f('''Target number of servers to have running.  Defaults to {} if omitted.
+        return f('''Target number of servers to have running.  If omitted, defaults to {}.
             Relative when starts with `+` or `-`.  Absolute otherwise.''', size)
 
     cleanup_doc = '''Normally emacs-preload cleans up after itself automatically.  If it
@@ -851,8 +869,6 @@ def parse_args():
             `0` are interpreted as false.  These are all case insensitive.
             ''',
             ENV_PREFIX))
-# TODO: override add_argument_group to get '#' headers on optional arguments and subcommands
-# TODO: allow path to python3 to be configured
 
     ################################
     # Options
@@ -878,14 +894,16 @@ def parse_args():
             documentation += f(' (default \'{}\')', value)
         else:
             # Environment does override default
-            documentation += f(' (default \'{}\' but environment overrides to \'{}\')', value, env_value)
+            documentation += f(' (default \'{}\' but environment overrides to \'{}\')',
+                value, env_value)
             value = env_value
 
-        name=key.lower().replace('_', '-')
+        name = key.lower().replace('_', '-')
 
         # Simple Boolean flags
         if isinstance(default_value, bool):
-            p.add_argument(f('--{}', name), default=value, action='store_true', dest=key, help=documentation)
+            p.add_argument(f('--{}', name), default=value, action='store_true',
+                dest=key, help=documentation)
             p.add_argument(f('--no-{}', name), default=value, action='store_false',
                 dest=key, help=f('Disable --{}', name))
         # Options with arguments
@@ -897,7 +915,7 @@ def parse_args():
     # Subcommands
     s = p.add_subparsers(title='subcommands', dest='subcommand')
     s.required = True # Workaround for bug in `argparse` (as of Python 3.5)
-    subcommands=collections.OrderedDict() # OrderedDict so printed in a consistent order
+    subcommands = collections.OrderedDict() # OrderedDict so printed in a consistent order
 
     def subcommand(func, name=None, description=None, **kwargs):
         if name is None:
@@ -914,8 +932,8 @@ def parse_args():
     c = subcommand(run,
         help='''Main `emacs-preload` subcommand.  Connect to a preload server and in the
             background start new servers.''',
-        description=doc('''Main `emacs-preload` subcommand. Uses `connect` to connect to an available
-            preload server, while using `start` in the background to launch new servers.
+        description=doc('''Main `emacs-preload` subcommand. Uses `connect` to connect to an
+            available preload server, while using `start` in the background to launch new servers.
 
             NOTE: Depending on how the `connect` and `start` processes are
             scheduled, the number of servers left running may be one fewer
@@ -923,18 +941,26 @@ def parse_args():
     c.add_argument('args', nargs='*', help=args_help)
 
     c = subcommand(check_status, name='check', help='Check for errors',
-        description=doc('''Print preload configuration and check for errors in links, sockets, servers, or clients.'''))
+        description=doc('''Print preload configuration and check for errors in links, sockets,
+            servers, or clients.'''))
 
     c = subcommand(start, help='Start preload servers',
-        description=doc('''Start new preload servers until at least `size` servers are running.'''))
+        description=doc('''Start new preload servers until at least `size` servers are
+            running.'''))
     c.add_argument('size', nargs='?', help=size_help(f('`SIZE`')))
 
     c = subcommand(stop, help='Stop preload servers',
-        description=doc('''Stop running preload servers until at most `size` servers are running.'''))
+        description=doc('''Stop running preload servers until at most `size` servers are
+            running.'''))
     c.add_argument('size', nargs='?', help=size_help(f('zero')))
 
     c = subcommand(status, help='Print preload status',
-        description=doc('''Print status of preload configuration, links, sockets, servers, and clients.'''))
+        description=doc('''Print status of preload configuration, links, sockets, servers, and
+            clients.'''))
+
+    c = subcommand(restart, help='Restart preload servers that do not yet have a client',
+        description=doc('''Stop preload servers that do not yet have a client then start that number of servers'''))
+    c.add_argument('size', nargs='?', help=size_help(f('the number of servers that do not yet have a client')))
 
     c = subcommand(init, help='Create the directory holding links to preload servers',
         description=doc('''Create the directory specified by `LINK_DIR`, which is where links to
@@ -944,8 +970,8 @@ def parse_args():
             by the subcommands that need the `LINK_DIR` directory.'''))
 
     c = subcommand(connect, help='Connect to a preload server',
-        description=doc('''Connect to an available preload server.  Picks a waiting server from those
-            in `LINK_DIR`, removes it from `LINK_DIR`, and connects to it with
+        description=doc('''Connect to an available preload server.  Picks a waiting server from
+            those in `LINK_DIR`, removes it from `LINK_DIR`, and connects to it with
             `emacsclient`.'''))
     c.add_argument('args', nargs='*', help=args_help)
 
@@ -966,14 +992,14 @@ def parse_args():
             have no client and are not in `LINK_DIR`.''', cleanup_doc))
 
 
-    c = subcommand(functools.partial(kill_servers, True), name='kill-orphans', help='Kill orphaned servers',
-        description=doc('''Kills all orphan preload servers, which are those for which there are no
-            sockets in `SOCKET_DIR`.
+    c = subcommand(functools.partial(kill_servers, True), name='kill-orphans',
+        help='Kill orphaned servers', description=doc('''Kills all orphan preload servers, which
+            are those for which there are no sockets in `SOCKET_DIR`.
 
             {}''', kill_doc('orphan', '`cleanup`')))
 
-    c = subcommand(functools.partial(kill_servers, False), name='kill-all', help='Kill all servers',
-        description=doc('''Kills all preload servers.
+    c = subcommand(functools.partial(kill_servers, False), name='kill-all',
+        help='Kill all servers', description=doc('''Kills all preload servers.
 
             {}''', kill_doc('', '`cleanup` and `kill-orphans`')))
 
@@ -986,7 +1012,8 @@ def parse_args():
             print()
             print('Usage: `emacs-preload [options] <subcommand> ...`')
             print()
-            print('**Note:** Do not edit this file directly.  It is generated by `emacs-preload export-usage`.')
+            print('**Note:** Do not edit this file directly.'
+                '  It is generated by `emacs-preload export-usage`.')
             print()
             print(p.description)
             print()
@@ -1002,7 +1029,7 @@ def parse_args():
             print('subcommands: |')
             print('----|----')
             for key in subcommands:
-                print(f('{} | {}', key, re.sub('\n\s*', ' ', subcommands[key]['help'])))
+                print(f('{} | {}', key, re.sub(r'\n\s*', ' ', subcommands[key]['help'])))
             print()
 
             for key in subcommands:
@@ -1028,7 +1055,7 @@ def parse_args():
                     print(f('Arguments | '))
                     print(f('----------|-'))
                     for action in value['subcommand']._actions: # TODO: public api?
-                        print(f('`{}` | {}', action.dest, re.sub('\n\s*', ' ', action.help)))
+                        print(f('`{}` | {}', action.dest, re.sub(r'\n\s*', ' ', action.help)))
 
     c = subcommand(export_usage, help='Generate Markdown version of usage messages',
         description=doc('''Generate Markdown version of usage messages'''))
@@ -1045,8 +1072,9 @@ def parse_args():
 
     # Last so we can get a list of all subcommands and topics
     c = subcommand(help, help='Prints help for subcommands', description=help_description())
-    c.add_argument('subcommand', metavar='subcommand', nargs='?', choices=subcommands.keys(), action='store',
-        help=f('The subcommand for which to print help (choose from {})', or_str(subcommands.keys(), prefix='`', postfix='`')))
+    c.add_argument('subcommand', metavar='subcommand', nargs='?', choices=subcommands.keys(),
+        action='store', help=f('The subcommand for which to print help (choose from {})',
+            or_str(subcommands.keys(), prefix='`', postfix='`')))
 
     ################################
     # Subcommand arguments
@@ -1070,7 +1098,8 @@ def main():
                 default_value = default_value[1]
             value = vars(args)[key]
             with err('could not parse {}: {}', key, value):
-                globals()[key] = parse_bool(value) if isinstance(default_value, bool) else type(default_value)(value)
+                globals()[key] = parse_bool(value) if isinstance(default_value, bool) \
+                    else type(default_value)(value)
 
         if QUERY_EMACS:
             with err('failed to query emacs for LINK_DIR'):

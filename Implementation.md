@@ -46,6 +46,13 @@ The `emacs-preload stop` command stops the servers with links in `LINK_DIR` by
 simply sending a `(kill-emacs)` message to the server.  It does not affect
 servers that already have clients and thus do not have links in `LINK_DIR`.
 
+## Restarting servers (`emacs-preload restart`)
+
+The `emacs-preload restart` command uses `emacs-preload stop` to stop the
+servers with links in `LINK_DIR`.  It then uses `emacs-preload start` to start
+the same number of new servers.  This is useful in development and testing to
+make sure no servers with old code are running.
+
 ## Checking and showing the status of servers (`emacs-preload check` and `emacs-preload status`)
 
 The `emacs-preload status` command prints the status of the preload

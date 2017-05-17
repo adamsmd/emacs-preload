@@ -92,6 +92,7 @@ check | Check for errors
 start | Start preload servers
 stop | Stop preload servers
 status | Print preload status
+restart | Restart preload servers that do not yet have a client
 init | Create the directory holding links to preload servers
 connect | Connect to a preload server
 cleanup | Cleanup broken servers
@@ -113,7 +114,7 @@ number of servers left running may be one fewer than specified.
 
 Arguments | 
 ----------|-
-`args` | Arguments to `emacsclient`.  Not parsed by `emacs-preload`.  Passed unchanged to `emacsclient`.
+`args` | Arguments to `emacsclient`.  Not parsed by `emacs-preload`.' '  Passed unchanged to `emacsclient`.
 
 ## check
 
@@ -130,7 +131,7 @@ Start new preload servers until at least `size` servers are running.
 
 Arguments | 
 ----------|-
-`size` | Target number of servers to have running.  Defaults to `SIZE` if omitted. Relative when starts with `+` or `-`.  Absolute otherwise.
+`size` | Target number of servers to have running.  If omitted, defaults to `SIZE`. Relative when starts with `+` or `-`.  Absolute otherwise.
 
 ## stop
 
@@ -140,13 +141,24 @@ Stop running preload servers until at most `size` servers are running.
 
 Arguments | 
 ----------|-
-`size` | Target number of servers to have running.  Defaults to zero if omitted. Relative when starts with `+` or `-`.  Absolute otherwise.
+`size` | Target number of servers to have running.  If omitted, defaults to zero. Relative when starts with `+` or `-`.  Absolute otherwise.
 
 ## status
 
 Usage: `emacs-preload [options] status`
 
 Print status of preload configuration, links, sockets, servers, and clients.
+
+## restart
+
+Usage: `emacs-preload [options] restart`
+
+Stop preload servers that do not yet have a client then start that number of
+servers
+
+Arguments | 
+----------|-
+`size` | Target number of servers to have running.  If omitted, defaults to the number of servers that do not yet have a client. Relative when starts with `+` or `-`.  Absolute otherwise.
 
 ## init
 
@@ -167,7 +179,7 @@ Connect to an available preload server.  Picks a waiting server from those in
 
 Arguments | 
 ----------|-
-`args` | Arguments to `emacsclient`.  Not parsed by `emacs-preload`.  Passed unchanged to `emacsclient`.
+`args` | Arguments to `emacsclient`.  Not parsed by `emacs-preload`.' '  Passed unchanged to `emacsclient`.
 
 ## cleanup
 
@@ -236,4 +248,4 @@ Usage: `emacs-preload [options] help`
 
 Arguments | 
 ----------|-
-`subcommand` | The subcommand for which to print help (choose from `run`, `check`, `start`, `stop`, `status`, `init`, `connect`, `cleanup`, `kill-orphans`, `kill-all`, `export-usage`, or `help`)
+`subcommand` | The subcommand for which to print help (choose from `run`, `check`, `start`, `stop`, `status`, `restart`, `init`, `connect`, `cleanup`, `kill-orphans`, `kill-all`, `export-usage`, or `help`)
