@@ -81,8 +81,8 @@ optional arguments: |
 --connect-timeout FLOAT | Maximum seconds to keep attempting to connect to a server (default '10.0')
 --stop-delay FLOAT | Seconds to wait between stopping servers (default '0.1')
 --kill-delay FLOAT | Seconds to wait between SIGTERM and SIGKILL when killing servers (default '1.0')
---prefix STR | Prefix to use for server names, links, and sockets (default 'preload-')
---link-dir DIR | Directory in which to place links (default '/home/adamsmd/.emacs.d/preload')
+--prefix STR | Prefix to use for server names, links, and sockets (default 'emacs-preload-')
+--link-dir DIR | Directory in which to place links (default '/home/adamsmd/.emacs.d/emacs-preload')
 --socket-dir DIR | The directory in which emacs stores its sockets (default '/tmp/emacs1000')
 
 subcommands: |

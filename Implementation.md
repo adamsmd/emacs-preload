@@ -11,13 +11,13 @@ can use to connect to that server.  These socket files are stored in
 number).
 
 On top of this `emacs-preload` stores links to these socket files in
-`LINK_DIR` (default: `~/.emacs/preload`).  This directory is automatically
-created by `emacs-preload` subcommands that need it, or it can be created
-manually with `emacs-preload init`.
+`LINK_DIR` (default: `~/.emacs/emacs-preload`).  This directory is
+automatically created by `emacs-preload` subcommands that need it, or it can
+be created manually with `emacs-preload init`.
 
 The filenames in these two directories are made up of `PREFIX` (default:
-`preload-`) followed by a sequence of randomly chosen characters.  Any file
-that does not start with this is ignored.
+`emacs-preload-`) followed by a sequence of randomly chosen characters.  Any
+file that does not start with this is ignored.
 
 Finally, when a new preload server is started, its elisp code is patched so it
 behaves more like a traditional Emacs instance.  For example, so it does not
@@ -95,7 +95,7 @@ all preload servers.
 Both these commands determine which processes are preload servers by looking
 in the output of `ps` for an `emacs` command started with a `--daemon` flag
 pointing to a socket in `SOCKET_DIR` that has a filename starting with
-`PREFIX` (default `preload-`).
+`PREFIX` (default `emacs-preload-`).
 
 Both these commands shutdown servers by first sending a `SIGTERM` signal and
 then `KILL_DELAY` seconds later a `SIGKILL` signal.

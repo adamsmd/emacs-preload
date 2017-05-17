@@ -48,7 +48,7 @@ __version__ = '0.1.1 (sha-1: ' + str(base64.b16encode(hashlib.sha1(pathlib.Path(
 ENV_PREFIX = 'EMACS_PRELOAD_'
 def configs():
     # These two lines mirror code in Emacs's `server.el`
-    link_dir = os.path.expanduser('~/.emacs.d/preload')
+    link_dir = os.path.expanduser('~/.emacs.d/emacs-preload')
     socket_dir = or_none(os.getenv('TMPDIR'), '/tmp') + '/emacs' + str(os.geteuid())
     return [
         # Miscellaneous
@@ -81,7 +81,7 @@ def configs():
         ('KILL_DELAY', 1.0, 'Seconds to wait between SIGTERM and SIGKILL when killing servers'),
 
         # Sockets and links
-        ('PREFIX', 'preload-', 'Prefix to use for server names, links, and sockets'),
+        ('PREFIX', 'emacs-preload-', 'Prefix to use for server names, links, and sockets'),
         ('LINK_DIR', ('DIR', link_dir), 'Directory in which to place links'),
         ('SOCKET_DIR', ('DIR', socket_dir), 'The directory in which emacs stores its sockets')]
 
@@ -1054,7 +1054,7 @@ def parse_args():
                     print()
                     print(f('Arguments | '))
                     print(f('----------|-'))
-                    for action in value['subcommand']._actions: # TODO: public api?
+                    for action in value['subcommand']._actions: # TODO: this uses a private API
                         print(f('`{}` | {}', action.dest, re.sub(r'\n\s*', ' ', action.help)))
 
     c = subcommand(export_usage, help='Generate Markdown version of usage messages',
