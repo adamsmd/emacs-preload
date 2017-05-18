@@ -11,7 +11,7 @@ instead of `emacs`, and the tool will take care of the test.
 The first run after a boot will be as slow as a normal `emacs`
 startup as there are no servers preloaded yet.  After that, the
 pool is automatically repopulated, and later runs should be much
-faster.
+faster.  (See "How fast is the startup?" in the FAQ for performance metrics.)
 
 You can avoid this initial slowness by populating the server pool
 in advance with `emacs-preload start`.  In fact, `run` populates
