@@ -28,9 +28,11 @@ include:
 
 - `emacs-preload run`
 
+- `emacs-preload run file.txt`
+
 - `emacs-preload run -nw`
 
-- `emacs-preload run file.txt`
+- `emacs-preload run -nw file.txt`
 
 An invocation of the form `emacs-preload run <args ...>` corresponds to the
 following where `<name>` is internally determined by `emacs-preload`:

@@ -22,10 +22,9 @@ Any argument that can be passed to `emacsclient` is accepted.
 Common use cases include:
 
 - `emacs-preload run`
-
-- `emacs-preload run -nw`
-
 - `emacs-preload run file.txt`
+- `emacs-preload run -nw`
+- `emacs-preload run -nw file.txt`
 
 An invocation of the form `emacs-preload run <args ...>`
 corresponds to the following where `<name>` is internally
@@ -44,7 +43,6 @@ You can download the latest release from
 Or you can clone the repository with either of the following.
 
 - `hg clone https://bitbucket.org/adamsmd/emacs-preload`
-
 - `hg clone ssh://hg@bitbucket.org/adamsmd/emacs-preload`
 
 ## Installation
