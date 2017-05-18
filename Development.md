@@ -49,7 +49,7 @@ This program is designed to be self contained:
 5. Commit and tag and push:
    - `hg ci -m 'emacs-preload-0.1.0'`
    - `hg tag emacs-preload-0.1.0`
-   - `hg pushh`
+   - `hg push`
 6. Get the SHA-1:
    - `emacs-preload --version`
 7. Go to <https://bitbucket.org/adamsmd/emacs-preload/addon/com.releasebucket/releases> and click "Create release".
