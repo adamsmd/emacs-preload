@@ -6,12 +6,13 @@ times by preloading Emacs server instances in the background.
 ## Examples
 
 If you do not care about the details, just use `emacs-preload run`
-instead of `emacs`, and the tool will take care of the test.
+instead of `emacs`, and the tool will take care of the rest.
 
-The first run after a boot will be as slow as a normal `emacs`
-startup as there are no servers preloaded yet.  After that, the
-pool is automatically repopulated, and later runs should be much
-faster.  (See "How fast is the startup?" in the FAQ for performance metrics.)
+The first run after a system boot will be as slow as a normal
+`emacs` startup as there are no servers preloaded yet.  After
+that, the pool is automatically repopulated, and later runs should
+be much faster.  (See "How fast is it?" in FAQ section of the
+`README` for performance metrics.)
 
 You can avoid this initial slowness by populating the server pool
 in advance with `emacs-preload start`.  In fact, `run` populates
@@ -128,13 +129,7 @@ Emacs server, and thus buffers are shared between all of them.
 In contract, `emacs-preload` manages a pool of servers, and each client
 connects to a different server.  Thus buffers are not shared between them.
 
-### Why isn't this project updated frequently?
-
-Unfortunately, my time for side projects like this is very limited.  That
-said, if an enterprising developer wants to take on maintenance or further
-development, I would be happy to accept pull requests.
-
-### How fast is the startup?
+### How fast is it?
 
 On my machine (Ubuntu 16.10 on a 2.6GHz Intel Core i7-6700HQ), I get the
 following times.  All numbers measured in seconds as reported by `bash`'s
@@ -178,3 +173,9 @@ See [Implementation.md](Implementation.md) in the repository.
 The default socket directory is based on what Emacs defaults to.  That said,
 you can always configure `emacs-preload` to use another directory by setting
 `SOCKET_DIR`, and this design choice may be revisited in the future.
+
+### Why isn't this project updated frequently?
+
+Unfortunately, my time for side projects like this is very limited.  That
+said, if an enterprising developer wants to take on maintenance or further
+development, I would be happy to accept pull requests.

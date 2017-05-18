@@ -821,12 +821,13 @@ def parse_args():
             ## Examples
 
             If you do not care about the details, just use `emacs-preload run`
-            instead of `emacs`, and the tool will take care of the test.
+            instead of `emacs`, and the tool will take care of the rest.
 
-            The first run after a boot will be as slow as a normal `emacs`
-            startup as there are no servers preloaded yet.  After that, the
-            pool is automatically repopulated, and later runs should be much
-            faster.
+            The first run after a system boot will be as slow as a normal
+            `emacs` startup as there are no servers preloaded yet.  After
+            that, the pool is automatically repopulated, and later runs should
+            be much faster.  (See "How fast is it?" in FAQ section of the
+            `README` for performance metrics.)
 
             You can avoid this initial slowness by populating the server pool
             in advance with `emacs-preload start`.  In fact, `run` populates
