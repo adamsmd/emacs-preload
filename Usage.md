@@ -17,7 +17,7 @@ If you do not care about the details, just use `emacs-preload run` instead of
 The first run after a system boot will be as slow as a normal `emacs` startup
 as there are no servers preloaded yet.  After that, the pool is automatically
 repopulated, and later runs should be much faster.  (See "How fast is it?" in
-FAQ section of the `README` for performance metrics.)
+FAQ section of the `README.md` for performance metrics.)
 
 You can avoid this initial slowness by populating the server pool in advance
 with `emacs-preload start`.  In fact, `run` populates the pool by running
@@ -61,32 +61,32 @@ interpreted as false.  These are all case insensitive.
 optional arguments: |
 ----|----
 -h, --help  | Show this help message and exit
--v, --version  | Show program's version number and exit
---dry-run  | Print commands instead of executing them (default 'False')
+-v, --version  | Show version information and exit
+--dry-run  | Print commands instead of executing them (default `False`)
 --no-dry-run  | Disable --dry-run
---quiet  | Supress info messages and startup messages from emacs servers (default 'False')
+--quiet  | Suppress info messages and startup messages from emacs servers (default `False`)
 --no-quiet  | Disable --quiet
---query-emacs  | Call emacs to determine LINK_DIR and SOCKET_DIR. Off by default for performance. (default 'False')
+--query-emacs  | Call emacs to determine `LINK_DIR` and `SOCKET_DIR`. Off by default for performance. (default `False`)
 --no-query-emacs  | Disable --query-emacs
---size SIZE | Number of servers to keep running (see `start` and `stop`) (default '7')
---emacs FILE | The emacs binary to use (default 'emacs')
---emacsclient FILE | The emacsclient binary to use (default 'emacsclient')
---ps FILE | The ps binary to use for process listing (default 'ps')
---patch-server  | Patch the emacs server to remove the quirks of server mode (default 'True')
+--size SIZE | Number of servers to keep running (see `start` and `stop`) (default `7`)
+--emacs FILE | The `emacs` binary to use (default `emacs`)
+--emacsclient FILE | The `emacsclient` binary to use (default `emacsclient`)
+--ps FILE | The `ps` binary to use for process listing (default `ps`)
+--patch-server  | Patch the Emacs server to remove the quirks of server mode (default `True`)
 --no-patch-server  | Disable --patch-server
---init-hook PROG | User hook. Called by `init` with the link and socket directories as arguments. Ignored if empty string (default '')
---start-hook PROG | User hook. Called by `start` with the socket file as argument. Ignored if empty string. (default '')
---connect-hook PROG | User hook. Called by `connect` with the socket file as argument. Ignored if empty string. (default '')
---stop-hook PROG | User hook. Called by `stop` with the socket file as argument. Ignored if empty string. (default '')
---start-delay FLOAT | Seconds to wait between starting servers (default '0.1')
---connect-delay FLOAT | Seconds between attempts to connect to a server (default '0.1')
---connect-attempts INT | Maximum number of attempts to connect to a server (default '100')
---connect-timeout FLOAT | Maximum seconds to keep attempting to connect to a server (default '10.0')
---stop-delay FLOAT | Seconds to wait between stopping servers (default '0.1')
---kill-delay FLOAT | Seconds to wait between SIGTERM and SIGKILL when killing servers (default '1.0')
---prefix STR | Prefix to use for server names, links, and sockets (default 'emacs-preload-')
---link-dir DIR | Directory in which to place links (default '/home/adamsmd/.emacs.d/emacs-preload')
---socket-dir DIR | The directory in which emacs stores its sockets (default '/tmp/emacs1000')
+--init-hook PROG | User hook. Called by `init` with the link and socket directories as arguments. Ignored if empty string (default ``)
+--start-hook PROG | User hook. Called by `start` with the socket file as argument. Ignored if empty string. (default ``)
+--connect-hook PROG | User hook. Called by `connect` with the socket file as argument. Ignored if empty string. (default ``)
+--stop-hook PROG | User hook. Called by `stop` with the socket file as argument. Ignored if empty string. (default ``)
+--start-delay FLOAT | Seconds to wait between starting servers (default `0.1`)
+--connect-delay FLOAT | Seconds between attempts to connect to a server (default `0.1`)
+--connect-attempts INT | Maximum number of attempts to connect to a server (default `100`)
+--connect-timeout FLOAT | Maximum seconds to keep attempting to connect to a server (default `10.0`)
+--stop-delay FLOAT | Seconds to wait between stopping servers (default `0.1`)
+--kill-delay FLOAT | Seconds to wait between `SIGTERM` and `SIGKILL` when killing servers (default `1.0`)
+--prefix STR | Prefix to use for server names, links, and sockets (default `emacs-preload-`)
+--link-dir DIR | Directory in which to place links (default `/home/adamsmd/.emacs.d/emacs-preload`)
+--socket-dir DIR | The directory in which emacs stores its sockets (default `/tmp/emacs1000`)
 
 subcommands: |
 ----|----

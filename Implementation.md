@@ -57,7 +57,7 @@ make sure no servers with old code are running.
 
 The `emacs-preload status` command prints the status of the preload
 configuration, links, sockets, servers, and clients.  It is useful both for
-debugging and if you want to better understand the intermals of
+debugging and if you want to better understand the internals of
 `emacs-preload`.
 
 The `emacs-preload check` command is a version of `emacs-preload status` that
@@ -88,8 +88,8 @@ is where `emacs-preload kill-orphans` and `emacs-preload kill-all` come in.
 They are unsafe in that they may shutdown servers with connected clients, but
 they can also shutdown servers that `emacs-preload cleanup` cannot.
 
-The `emacs-preload kill-orphans` command shutsdown any preload server that
-cannot be connected to, whereas the `emacs-preload kill-all` command shutsdown
+The `emacs-preload kill-orphans` command shuts down any preload server that
+cannot be connected to, whereas the `emacs-preload kill-all` command shuts down
 all preload servers.
 
 Both these commands determine which processes are preload servers by looking

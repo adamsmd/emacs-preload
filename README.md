@@ -12,7 +12,7 @@ The first run after a system boot will be as slow as a normal
 `emacs` startup as there are no servers preloaded yet.  After
 that, the pool is automatically repopulated, and later runs should
 be much faster.  (See "How fast is it?" in FAQ section of the
-`README` for performance metrics.)
+`README.md` for performance metrics.)
 
 You can avoid this initial slowness by populating the server pool
 in advance with `emacs-preload start`.  In fact, `run` populates
@@ -22,8 +22,11 @@ Any argument that can be passed to `emacsclient` is accepted.
 Common use cases include:
 
 - `emacs-preload run`
+
 - `emacs-preload run file.txt`
+
 - `emacs-preload run -nw`
+
 - `emacs-preload run -nw file.txt`
 
 An invocation of the form `emacs-preload run <args ...>`
@@ -65,7 +68,7 @@ Dependencies have been intentionally kept minimal.  They are:
 Except for `python3` and `/usr/bin/env` (which are hard coded into the shebang
 line), paths to all of these can be configured.
 
-### Porability
+### Portability
 
 The implementation uses Unix-specific features of Python.  It should run fine
 under both Linux and MacOS.

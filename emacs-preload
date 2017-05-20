@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 # emacs-preload: Fast Emacs Startup by Preloading Emacs Servers
-# Home page: <https://bitbucket.org/adamsmd/emacs-preload>.
+# Homepage: <https://bitbucket.org/adamsmd/emacs-preload>.
 #
 # Copyright (C) 2017  Michael D. Adams <https://michaeldadams.org/>
 #
@@ -53,16 +53,16 @@ def configs():
     return [
         # Miscellaneous
         ('DRY_RUN', False, 'Print commands instead of executing them'),
-        ('QUIET', False, 'Supress info messages and startup messages from emacs servers'),
-        ('QUERY_EMACS', False, 'Call emacs to determine LINK_DIR and SOCKET_DIR.'
+        ('QUIET', False, 'Suppress info messages and startup messages from emacs servers'),
+        ('QUERY_EMACS', False, 'Call emacs to determine `LINK_DIR` and `SOCKET_DIR`.'
          + ' Off by default for performance.'),
         ('SIZE', ('SIZE', 7), 'Number of servers to keep running (see `start` and `stop`)'),
 
         # Sub-processes
-        ('EMACS', ('FILE', 'emacs'), 'The emacs binary to use'),
-        ('EMACSCLIENT', ('FILE', 'emacsclient'), 'The emacsclient binary to use'),
-        ('PS', ('FILE', 'ps'), 'The ps binary to use for process listing'),
-        ('PATCH_SERVER', True, 'Patch the emacs server to remove the quirks of server mode'),
+        ('EMACS', ('FILE', 'emacs'), 'The `emacs` binary to use'),
+        ('EMACSCLIENT', ('FILE', 'emacsclient'), 'The `emacsclient` binary to use'),
+        ('PS', ('FILE', 'ps'), 'The `ps` binary to use for process listing'),
+        ('PATCH_SERVER', True, 'Patch the Emacs server to remove the quirks of server mode'),
         ('INIT_HOOK', ('PROG', ''), 'User hook. Called by `init` with the link and socket'
             ' directories as arguments. Ignored if empty string'),
         ('START_HOOK', ('PROG', ''), 'User hook. Called by `start` with the socket'
@@ -78,7 +78,7 @@ def configs():
         ('CONNECT_ATTEMPTS', 100, 'Maximum number of attempts to connect to a server'),
         ('CONNECT_TIMEOUT', 10.0, 'Maximum seconds to keep attempting to connect to a server'),
         ('STOP_DELAY', 0.1, 'Seconds to wait between stopping servers'),
-        ('KILL_DELAY', 1.0, 'Seconds to wait between SIGTERM and SIGKILL when killing servers'),
+        ('KILL_DELAY', 1.0, 'Seconds to wait between `SIGTERM` and `SIGKILL` when killing servers'),
 
         # Sockets and links
         ('PREFIX', 'emacs-preload-', 'Prefix to use for server names, links, and sockets'),
@@ -200,14 +200,14 @@ def parse_bool(value):
     elif value.lower() in false:
         return False
     else:
-        error('invalid truth value \'{}\'\n'
+        error('invalid truth value `{}`\n'
             '        for True use one of {}\n'
             '        for False use one of {}\n'
             '        both are case insensitive',
             value, or_str(true), or_str(false))
 
 # Combine `parts` according to English grammar rules
-def or_str(parts, prefix='\'', postfix='\''):
+def or_str(parts, prefix='`', postfix='`'):
     parts = [prefix+p+postfix for p in parts]
     if len(parts) == 0:
         raise ValueError('empty list passed to or_str')
@@ -827,7 +827,7 @@ def parse_args():
             `emacs` startup as there are no servers preloaded yet.  After
             that, the pool is automatically repopulated, and later runs should
             be much faster.  (See "How fast is it?" in FAQ section of the
-            `README` for performance metrics.)
+            `README.md` for performance metrics.)
 
             You can avoid this initial slowness by populating the server pool
             in advance with `emacs-preload start`.  In fact, `run` populates
@@ -878,7 +878,7 @@ def parse_args():
     p.add_argument('-h', '--help', action='help', help='Show this help message and exit')
     c = p.add_argument('-v', '--version', action='version',
         version=f('emacs-preload version {}', __version__),
-        help='Show program\'s version number and exit')
+        help='Show version information and exit')
     for (key, default_value, documentation) in configs():
         # Extract the manually defined metavar if there is any
         if isinstance(default_value, tuple):
@@ -894,10 +894,10 @@ def parse_args():
         env_value = os.getenv(f('{}{}', ENV_PREFIX, key))
         if env_value is None:
             # Environment does not override default
-            documentation += f(' (default \'{}\')', value)
+            documentation += f(' (default `{}`)', value)
         else:
             # Environment does override default
-            documentation += f(' (default \'{}\' but environment overrides to \'{}\')',
+            documentation += f(' (default `{}` but environment overrides to `{}`)',
                 value, env_value)
             value = env_value
 

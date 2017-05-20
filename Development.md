@@ -15,7 +15,7 @@ This program is designed to be self contained:
 
 ## Messages
 
-- Don't capitalize errors (they must be compatable with `because()`)
+- Don't capitalize errors (they must be compatible with `because()`)
 - Errors thrown from a given `<line>` include `[#<line>]` at the start to help
   debugging.
 - All other documentation capitalized
