@@ -89,8 +89,8 @@ They are unsafe in that they may shutdown servers with connected clients, but
 they can also shutdown servers that `emacs-preload cleanup` cannot.
 
 The `emacs-preload kill-orphans` command shuts down any preload server that
-cannot be connected to, whereas the `emacs-preload kill-all` command shuts down
-all preload servers.
+cannot be connected to, whereas the `emacs-preload kill-all` command shuts
+down all preload servers.
 
 Both these commands determine which processes are preload servers by looking
 in the output of `ps` for an `emacs` command started with a `--daemon` flag
