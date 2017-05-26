@@ -308,10 +308,11 @@ def link_count():
         return len(list(links()))
 
 # Returns number of clients connected to the server at `socket`
-def client_count(socket):
+def client_count(socket, quiet=False):
     with err('failed to determine client count'):
         with err('failed to connect to server at socket {}', socket):
-            count_str = emacs_cl(socket, '--eval', '(princ (length server-clients))')
+            count_str = emacs_cl(socket, '--eval', '(princ (length server-clients))',
+                stderr=subprocess.DEVNULL if quiet else None)
         with err('server returned non-integer count {}', count_str):
             count_int = int(count_str)
         return count_int - 1 # subtract one to not count ourselves
@@ -657,12 +658,12 @@ def cleanup(args):
         else:
             try:
                 socket = socket_from_link(link)
-                clients = client_count(link)
+                clients = client_count(link, quiet=True)
                 check(clients == 0,
                     'already in use by {} clients', clients)
                 socket_map[socket] = link
             except Err as e:
-                info(because(f('removing link {}', link), e.message))
+                info(because(f('cleanup removing link {}', link), e.message))
                 with err(f('failed to remove link {}', link)):
                     dry(os.remove, link)
 
@@ -675,16 +676,16 @@ def cleanup(args):
             info('skipping non-socket {}', socket)
         else:
             try:
-                clients = client_count(socket)
+                clients = client_count(socket, quiet=True)
             except Err as e:
                 info(because(
-                    f('removing socket at {} due to no connection to the server', socket),
+                    f('cleanup removing socket at {} due to no connection to the server', socket),
                     e.message))
                 with err('failed to remove socket {}', socket):
                     dry(os.remove, socket)
             else:
                 if clients == 0:
-                    info('sending (kill-emacs) to server at {}'
+                    info('cleanup sending (kill-emacs) to server at {}'
                         ' due to having no link and no clients', socket)
                     with err('failed to (kill-emacs) on server at {}', socket):
                         emacs_cl(socket, '--eval', '(kill-emacs)', dry_run=True)
