@@ -311,7 +311,7 @@ def link_count():
 def client_count(socket, quiet=False):
     with err('failed to determine client count'):
         with err('failed to connect to server at socket {}', socket):
-            count_str = emacs_cl(socket, '--eval', '(princ (length server-clients))',
+            count_str = emacs_cl(socket, '--eval', '(length server-clients)',
                 stderr=subprocess.DEVNULL if quiet else None)
         with err('server returned non-integer count {}', count_str):
             count_int = int(count_str)
@@ -446,7 +446,7 @@ def status(args, verbose=True):
 
             with mute():
                 with _err('failed to connect to server at {}', socket):
-                    count_str = emacs_cl(socket, '--eval', '(princ (length server-clients))',
+                    count_str = emacs_cl(socket, '--eval', '(length server-clients)',
                         stderr=subprocess.DEVNULL)
                 with _err('server returned non-integer count {}', count_str):
                     count_int = int(count_str)
