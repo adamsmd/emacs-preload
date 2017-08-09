@@ -177,6 +177,8 @@ you can always configure `emacs-preload` to use another directory by setting
 
 ### Why isn't this project updated frequently?
 
-Unfortunately, my time for side projects like this is very limited.  That
-said, if an enterprising developer wants to take on maintenance or further
-development, I would be happy to accept pull requests.
+My time for side projects like this is very limited.  However, I use
+`emacs-preload` on a daily basis, so I do fix things when they break.
+
+That said, if an enterprising developer wants to take on maintenance or
+further development, I would be happy to accept pull requests.
