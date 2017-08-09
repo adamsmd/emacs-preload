@@ -756,8 +756,8 @@ def init(args):
             cmd(INIT_HOOK, LINK_DIR, SOCKET_DIR, stdout=None, stderr=None, dry_run=True)
     with err('failed to create preload link directory {}', LINK_DIR):
         dry(os.makedirs, LINK_DIR, exist_ok=True)
-    with err('failed to create preload link directory {}', SOCKET_DIR):
-        dry(os.makedirs, SOCKET_DIR, exist_ok=True)
+    with err('failed to create preload link directory {} (must be owned by the current user, not involve a symlink, and not be readable or writable by other users)', SOCKET_DIR):
+        dry(elisp, f("(progn (require 'server) (server-ensure-safe-dir \"{}\"))", SOCKET_DIR))
 
 # Restart preload servers that do not yet have a client
 def restart(args):
