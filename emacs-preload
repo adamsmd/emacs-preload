@@ -41,7 +41,7 @@ import traceback
 # NOTE: the sha1 in __version__ can be computed manually with:
 #   openssl dgst -sha1 emacs-preload
 # NOTE: we use getsourcefile instead of __file__ to avoid .pyc files
-__version__ = '0.2.1 (sha-1: ' + str(base64.b16encode(hashlib.sha1(pathlib.Path(
+__version__ = '0.2.2 (sha-1: ' + str(base64.b16encode(hashlib.sha1(pathlib.Path(
     inspect.getsourcefile(lambda: None)).read_bytes()).digest()), encoding='utf-8') + ')'
 
 # Configuration variables.  Set by command line flags or environment variables.
